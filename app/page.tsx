@@ -34,7 +34,7 @@ export default function HomePage() {
     <main className="min-h-screen bg-slate-100 p-4 md:p-8">
       <div className="max-w-5xl mx-auto mb-6 bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
         <div>
-          <h1 className="text-lg font-bold text-slate-800">우기 대비 현장점검 일정 캘린더</h1>
+          <h1 className="text-lg font-bold text-slate-800">현장점검 일정 캘린더</h1>
           <p className="text-xs text-slate-500">엑셀 파일(.xlsx)을 올리면 아래 캘린더에 조별로 즉시 표시됩니다.</p>
         </div>
 
