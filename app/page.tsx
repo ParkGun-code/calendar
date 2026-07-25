@@ -45,7 +45,7 @@ export default function Home() {
   // 로그인 처리 함수
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (username === "admin" && password === "1234") {
+    if (username === "molitdj" && password === "eowjscjd1!") {
       setIsAuthenticated(true);
       setLoginError("");
     } else {
