@@ -148,7 +148,7 @@ export default function FieldInspectionCalendar({ initialData = [] }) {
             onChange={(e) => setSelectedGroup(e.target.value)}
             className="bg-slate-100 border border-slate-300 text-slate-800 text-sm rounded-lg p-2 font-medium focus:ring-2 focus:ring-blue-500"
           >
-            <option value="ALL">전체 보기 (20여명/전체조)</option>
+            <option value="ALL">전체 보기</option>
             <option value="1조">1조</option>
             <option value="2조">2조</option>
             <option value="3조">3조</option>
