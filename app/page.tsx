@@ -75,6 +75,7 @@ const parseCheckDate = (val: any): string => {
   if (!val) return "";
   const strVal = String(val).trim();
 
+  // "08.03." / "08.03" / "8.3" 형태 인식
   const mmddMatch = strVal.match(/^(\d{1,2})[\.\/-](\d{1,2})[\.]?$/);
   if (mmddMatch) {
     const m = String(mmddMatch[1]).padStart(2, "0");
@@ -140,7 +141,6 @@ export default function Home() {
   const [selectedTeam, setSelectedTeam] = useState<string>("all");
   const [isLoading, setIsLoading] = useState(false);
 
-  // 모달 상태 및 편집 모드
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(
     null
   );
@@ -247,19 +247,36 @@ export default function Home() {
           defval: "",
         });
 
-        if (sheetData.length < 5) {
-          alert("엑셀 파일에 5행 이상의 데이터가 필요합니다.");
+        if (sheetData.length < 4) {
+          alert("엑셀 파일에 데이터가 부족합니다.");
           setIsLoading(false);
           return;
         }
 
+        // 실제 데이터 시작 행 유동적 검색 (담당조/점검예정일/연번 밑 첫 데이터행)
+        let startRowIdx = -1;
+        for (let r = 0; r < sheetData.length; r++) {
+          const rowStr = sheetData[r].map((c) => String(c)).join(" ");
+          // B열 또는 C열 등에 데이터가 있기 시작하거나, 1번 연번이 등장하는 행 찾기
+          if (
+            (rowStr.includes("공공") || rowStr.includes("민간") || rowStr.includes("건축") || rowStr.includes("토목")) &&
+            !rowStr.includes("구분") && !rowStr.includes("발주")
+          ) {
+            startRowIdx = r;
+            break;
+          }
+        }
+
+        if (startRowIdx === -1) startRowIdx = 4; // 기본값 5행 (인덱스 4)
+
         const newCalendarEvents: CalendarEvent[] = [];
         const dbRowsToInsert: any[] = [];
 
-        for (let r = 4; r < sheetData.length; r++) {
+        for (let r = startRowIdx; r < sheetData.length; r++) {
           const row = sheetData[r];
           if (!row || row.length === 0) continue;
 
+          // A열=0, B열=1, C열=2, D열=3, E열=4, F열=5, G열=6 ... X열=23, Y열=24
           const seq = String(row[1] || "").trim();
           const orderType = String(row[2] || "").trim();
           const category = String(row[3] || "").trim();
@@ -277,12 +294,15 @@ export default function Home() {
           const teamRaw = String(row[23] || "").trim();
           const rawCheckDate = row[24];
 
+          // 헤더 텍스트 예외 처리
+          if (teamRaw === "담당조" || String(rawCheckDate).includes("점검예정일")) continue;
+
           const checkDate = parseCheckDate(rawCheckDate);
-          if (!checkDate) continue;
+          if (!checkDate) continue; // 점검예정일이 없는 행 제외
 
           const team = teamRaw || "1조";
           const color = TEAM_COLORS[team] || "#3B82F6";
-          const title = `${team} - ${projectName || "현장점검"}`;
+          const title = `${team} - ${projectName.replace(/\n/g, " ") || "현장점검"}`;
 
           const eventItem: CalendarEvent = {
             id: String(Date.now() + r),
@@ -397,7 +417,6 @@ export default function Home() {
     setIsEditing(false);
   };
 
-  // 수정 내용 저장 (화면 + DB 반영)
   const handleSaveEdit = async () => {
     if (!selectedEvent) return;
 
@@ -418,14 +437,12 @@ export default function Home() {
       },
     };
 
-    // 1. 화면 이벤트 목록 업데이트
     setEvents((prev) =>
       prev.map((e) => (e.id === selectedEvent.id ? updatedEvent : e))
     );
     setSelectedEvent(updatedEvent);
     setIsEditing(false);
 
-    // 2. Supabase DB 업데이트
     const supabase = getSupabaseClient();
     if (supabase) {
       try {
@@ -528,7 +545,7 @@ export default function Home() {
               현장점검 일정 캘린더
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              우기 대비 현장점검 엑셀 파일(.xlsx)을 등록하면 아래 달력에 일정이
+              우기 대비 및 8월 현장점검 엑셀 파일(.xlsx)을 등록하면 아래 달력에 일정이
               즉시 표시됩니다.
             </p>
           </div>
@@ -608,7 +625,7 @@ export default function Home() {
           <FullCalendar
             plugins={[dayGridPlugin, interactionPlugin]}
             initialView="dayGridMonth"
-            initialDate="2026-05-01"
+            initialDate="2026-08-01"
             locale="ko"
             events={filteredEvents}
             eventClick={handleEventClick}
@@ -653,7 +670,6 @@ export default function Home() {
             </div>
 
             {isEditing ? (
-              /* --- 수정 모드 폼 --- */
               <div className="space-y-4 text-xs">
                 <div>
                   <label className="font-semibold text-slate-600 block mb-1">
@@ -792,9 +808,7 @@ export default function Home() {
                 </div>
               </div>
             ) : (
-              /* --- 상세 보기 모드 --- */
               <div className="space-y-4 text-sm">
-                {/* 공사명 */}
                 <div className="flex items-start gap-3">
                   <Building
                     className="text-blue-500 shrink-0 mt-0.5"
@@ -810,7 +824,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* 점검예정일 */}
                 <div className="flex items-start gap-3">
                   <Calendar
                     className="text-emerald-500 shrink-0 mt-0.5"
@@ -826,7 +839,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* 현장사무실 주소 (네비게이션 연동) */}
                 {selectedEvent.extendedProps.address && (
                   <div className="flex items-start gap-3">
                     <MapPin
@@ -857,7 +869,6 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* 시공사 & 감리사 */}
                 {(selectedEvent.extendedProps.builder ||
                   selectedEvent.extendedProps.supervisor) && (
                   <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
@@ -884,7 +895,6 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* 현장대리인 정보 (전화 바로 연결) */}
                 {(selectedEvent.extendedProps.agentName ||
                   selectedEvent.extendedProps.agentPhone) && (
                   <div className="space-y-1.5 bg-blue-50/60 p-3 rounded-xl border border-blue-100">
@@ -915,7 +925,6 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* 공사진행상태 / 비고 */}
                 {selectedEvent.extendedProps.progressStatus && (
                   <div className="flex items-start gap-3">
                     <FileText
@@ -935,7 +944,6 @@ export default function Home() {
               </div>
             )}
 
-            {/* 하단 버튼 영역 */}
             <div className="pt-2 flex justify-between items-center border-t">
               {isEditing ? (
                 <>
