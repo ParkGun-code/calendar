@@ -5,7 +5,23 @@ import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import * as XLSX from "xlsx";
-import { Upload, Filter, Trash2, RefreshCw, X, Calendar, MapPin, User, Phone, Mail, Building, FileText } from "lucide-react";
+import {
+  Upload,
+  Filter,
+  Trash2,
+  RefreshCw,
+  X,
+  Calendar,
+  MapPin,
+  User,
+  Phone,
+  Mail,
+  Building,
+  FileText,
+  Navigation,
+  Edit2,
+  Check,
+} from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
 const getSupabaseClient = () => {
@@ -28,22 +44,22 @@ interface CalendarEvent {
   backgroundColor: string;
   borderColor: string;
   extendedProps: {
-    seq: string;          // B열: 연번
-    orderType: string;    // C열: 발주
-    category: string;     // D열: 구분
-    client: string;       // E열: 발주처
-    projectName: string;  // F열: 공사명
-    address: string;      // G열: 현장사무실 주소
-    startDate: string;    // J열: 착공일
-    endDate: string;      // K열: 준공일
-    builder: string;      // R열: 시공사
-    supervisor: string;   // S열: 감리사
-    agentName: string;    // T열: 현장대리인 성명
-    agentPhone: string;   // U열: 현장대리인 전화번호
-    agentEmail: string;   // V열: 현장대리인 이메일
-    progressStatus: string;// W열: 공사진행상태
-    team: string;         // X열: 현장점검 담당조
-    checkDate: string;    // Y열: 현장점검 예정일
+    seq: string;
+    orderType: string;
+    category: string;
+    client: string;
+    projectName: string;
+    address: string;
+    startDate: string;
+    endDate: string;
+    builder: string;
+    supervisor: string;
+    agentName: string;
+    agentPhone: string;
+    agentEmail: string;
+    progressStatus: string;
+    team: string;
+    checkDate: string;
   };
 }
 
@@ -55,13 +71,10 @@ const TEAM_COLORS: Record<string, string> = {
   "TF2조": "#EC4899",
 };
 
-// Y열("05.11.")의 점검예정일을 YYYY-MM-DD 포맷으로 안전 변환
 const parseCheckDate = (val: any): string => {
   if (!val) return "";
-
   const strVal = String(val).trim();
 
-  // "05.11." 또는 "05.11" 또는 "5.11" 매칭
   const mmddMatch = strVal.match(/^(\d{1,2})[\.\/-](\d{1,2})[\.]?$/);
   if (mmddMatch) {
     const m = String(mmddMatch[1]).padStart(2, "0");
@@ -72,43 +85,45 @@ const parseCheckDate = (val: any): string => {
   if (typeof val === "number") {
     const jsDate = XLSX.SSF.parse_date_code(val);
     if (jsDate) {
-      const y = jsDate.y;
-      const m = String(jsDate.m).padStart(2, "0");
-      const d = String(jsDate.d).padStart(2, "0");
-      return `${y}-${m}-${d}`;
+      return `${jsDate.y}-${String(jsDate.m).padStart(2, "0")}-${String(
+        jsDate.d
+      ).padStart(2, "0")}`;
     }
   }
 
   if (val instanceof Date) {
-    const y = val.getFullYear();
-    const m = String(val.getMonth() + 1).padStart(2, "0");
-    const d = String(val.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
+    return `${val.getFullYear()}-${String(val.getMonth() + 1).padStart(
+      2,
+      "0"
+    )}-${String(val.getDate()).padStart(2, "0")}`;
   }
 
   if (/^\d{8}$/.test(strVal)) {
-    return `${strVal.substring(0, 4)}-${strVal.substring(4, 6)}-${strVal.substring(6, 8)}`;
+    return `${strVal.substring(0, 4)}-${strVal.substring(
+      4,
+      6
+    )}-${strVal.substring(6, 8)}`;
   }
 
   const cleanStr = strVal.replace(/\./g, "-").replace(/\//g, "-");
   const dateObj = new Date(cleanStr);
   if (!isNaN(dateObj.getTime())) {
-    const y = dateObj.getFullYear();
-    const m = String(dateObj.getMonth() + 1).padStart(2, "0");
-    const d = String(dateObj.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
+    return `${dateObj.getFullYear()}-${String(
+      dateObj.getMonth() + 1
+    ).padStart(2, "0")}-${String(dateObj.getDate()).padStart(2, "0")}`;
   }
 
   return "";
 };
 
-// 일반 날짜(착공일/준공일) 포맷팅 함수
 const formatDate = (val: any): string => {
   if (!val) return "-";
   if (typeof val === "number") {
     const jsDate = XLSX.SSF.parse_date_code(val);
     if (jsDate) {
-      return `${jsDate.y}-${String(jsDate.m).padStart(2, "0")}-${String(jsDate.d).padStart(2, "0")}`;
+      return `${jsDate.y}-${String(jsDate.m).padStart(2, "0")}-${String(
+        jsDate.d
+      ).padStart(2, "0")}`;
     }
   }
   const str = String(val).split(" ")[0].replace(/\./g, "-");
@@ -124,7 +139,13 @@ export default function Home() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [selectedTeam, setSelectedTeam] = useState<string>("all");
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+
+  // 모달 상태 및 편집 모드
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(
+    null
+  );
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState<any>({});
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -202,7 +223,7 @@ export default function Home() {
         setIsLoading(false);
       }
     }
-    
+
     setEvents([]);
     alert("모든 일정이 초기화되었습니다.");
   };
@@ -221,8 +242,10 @@ export default function Home() {
         const wsname = workbook.SheetNames[0];
         const ws = workbook.Sheets[wsname];
 
-        // 2D 배열로 변환
-        const sheetData: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+        const sheetData: any[][] = XLSX.utils.sheet_to_json(ws, {
+          header: 1,
+          defval: "",
+        });
 
         if (sheetData.length < 5) {
           alert("엑셀 파일에 5행 이상의 데이터가 필요합니다.");
@@ -233,28 +256,9 @@ export default function Home() {
         const newCalendarEvents: CalendarEvent[] = [];
         const dbRowsToInsert: any[] = [];
 
-        // 요청하신 지정 규칙: 5행(인덱스 4)부터 데이터 시작
         for (let r = 4; r < sheetData.length; r++) {
           const row = sheetData[r];
           if (!row || row.length === 0) continue;
-
-          // 지정된 열 정확 매핑:
-          // B열 (1): 연번
-          // C열 (2): 발주
-          // D열 (3): 구분
-          // E열 (4): 발주처(인허가기관)
-          // F열 (5): 공사명
-          // G열 (6): 현장사무실 주소
-          // J열 (9): 착공일
-          // K열 (10): 준공일
-          // R열 (17): 시공사
-          // S열 (18): 감리사
-          // T열 (19): 현장대리인 성명
-          // U열 (20): 현장대리인 전화번호
-          // V열 (21): 현장대리인 이메일
-          // W열 (22): 공사진행상태
-          // X열 (23): 현장점검 담당조
-          // Y열 (24): 현장점검 예정일
 
           const seq = String(row[1] || "").trim();
           const orderType = String(row[2] || "").trim();
@@ -273,9 +277,8 @@ export default function Home() {
           const teamRaw = String(row[23] || "").trim();
           const rawCheckDate = row[24];
 
-          // Y열(현장점검 예정일) 파싱
           const checkDate = parseCheckDate(rawCheckDate);
-          if (!checkDate) continue; // 점검예정일이 없는 데이터는 제외
+          if (!checkDate) continue;
 
           const team = teamRaw || "1조";
           const color = TEAM_COLORS[team] || "#3B82F6";
@@ -319,12 +322,22 @@ export default function Home() {
             members: builder,
             location: projectName,
             notes: progressStatus,
+            seq,
+            order_type: orderType,
+            category,
+            client,
+            address,
+            start_date_work: startDate,
+            end_date_work: endDate,
+            supervisor,
+            agent_name: agentName,
+            agent_phone: agentPhone,
+            agent_email: agentEmail,
           });
         }
 
         setEvents(newCalendarEvents);
 
-        // Supabase에도 백그라운드로 저장
         const supabase = getSupabaseClient();
         if (supabase && dbRowsToInsert.length > 0) {
           try {
@@ -334,8 +347,9 @@ export default function Home() {
           }
         }
 
-        alert(`총 ${newCalendarEvents.length}건의 현장점검 일정이 캘린더에 정확히 등록되었습니다!`);
-
+        alert(
+          `총 ${newCalendarEvents.length}건의 현장점검 일정이 캘린더에 정확히 등록되었습니다!`
+        );
       } catch (err: any) {
         console.error("엑셀 파싱 오류:", err);
         alert(`엑셀 처리 오류: ${err.message || err}`);
@@ -351,31 +365,97 @@ export default function Home() {
   const handleEventClick = (info: any) => {
     const evt = info.event;
     const props = evt.extendedProps;
-    setSelectedEvent({
+
+    const eventData: CalendarEvent = {
       id: evt.id,
       title: evt.title,
       start: evt.startStr,
       backgroundColor: evt.backgroundColor,
       borderColor: evt.borderColor,
       extendedProps: {
-        seq: props.seq,
-        orderType: props.orderType,
-        category: props.category,
-        client: props.client,
-        projectName: props.projectName,
-        address: props.address,
-        startDate: props.startDate,
-        endDate: props.endDate,
-        builder: props.builder,
-        supervisor: props.supervisor,
-        agentName: props.agentName,
-        agentPhone: props.agentPhone,
-        agentEmail: props.agentEmail,
-        progressStatus: props.progressStatus,
-        team: props.team,
-        checkDate: props.checkDate,
+        seq: props.seq || "",
+        orderType: props.orderType || "",
+        category: props.category || "",
+        client: props.client || "",
+        projectName: props.projectName || "",
+        address: props.address || "",
+        startDate: props.startDate || "",
+        endDate: props.endDate || "",
+        builder: props.builder || "",
+        supervisor: props.supervisor || "",
+        agentName: props.agentName || "",
+        agentPhone: props.agentPhone || "",
+        agentEmail: props.agentEmail || "",
+        progressStatus: props.progressStatus || "",
+        team: props.team || "1조",
+        checkDate: evt.startStr || "",
       },
-    });
+    };
+
+    setSelectedEvent(eventData);
+    setEditForm({ ...eventData.extendedProps });
+    setIsEditing(false);
+  };
+
+  // 수정 내용 저장 (화면 + DB 반영)
+  const handleSaveEdit = async () => {
+    if (!selectedEvent) return;
+
+    const updatedTeam = editForm.team || "1조";
+    const updatedColor = TEAM_COLORS[updatedTeam] || "#3B82F6";
+    const updatedTitle = `${updatedTeam} - ${
+      editForm.projectName || "현장점검"
+    }`;
+
+    const updatedEvent: CalendarEvent = {
+      ...selectedEvent,
+      title: updatedTitle,
+      start: editForm.checkDate,
+      backgroundColor: updatedColor,
+      borderColor: updatedColor,
+      extendedProps: {
+        ...editForm,
+      },
+    };
+
+    // 1. 화면 이벤트 목록 업데이트
+    setEvents((prev) =>
+      prev.map((e) => (e.id === selectedEvent.id ? updatedEvent : e))
+    );
+    setSelectedEvent(updatedEvent);
+    setIsEditing(false);
+
+    // 2. Supabase DB 업데이트
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        const isNumericId = !isNaN(Number(selectedEvent.id));
+        if (isNumericId) {
+          await supabase
+            .from("events")
+            .update({
+              title: updatedTitle,
+              start_date: editForm.checkDate,
+              bg_color: updatedColor,
+              border_color: updatedColor,
+              team: updatedTeam,
+              location: editForm.projectName,
+              address: editForm.address,
+              members: editForm.builder,
+              supervisor: editForm.supervisor,
+              agent_name: editForm.agentName,
+              agent_phone: editForm.agentPhone,
+              agent_email: editForm.agentEmail,
+              notes: editForm.progressStatus,
+            })
+            .eq("id", Number(selectedEvent.id));
+        }
+      } catch (e) {
+        console.error("DB 수정 실패:", e);
+      }
+    }
+
+    alert("수정사항이 저장되었습니다.");
   };
 
   const filteredEvents =
@@ -448,7 +528,8 @@ export default function Home() {
               현장점검 일정 캘린더
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              우기 대비 현장점검 엑셀 파일(.xlsx)을 등록하면 아래 달력에 일정이 즉시 표시됩니다.
+              우기 대비 현장점검 엑셀 파일(.xlsx)을 등록하면 아래 달력에 일정이
+              즉시 표시됩니다.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -458,7 +539,10 @@ export default function Home() {
               className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 px-3 py-2.5 rounded-xl font-medium text-sm transition"
               title="새로고침"
             >
-              <RefreshCw size={16} className={isLoading ? "animate-spin" : ""} />
+              <RefreshCw
+                size={16}
+                className={isLoading ? "animate-spin" : ""}
+              />
             </button>
             <button
               onClick={handleClearDatabase}
@@ -490,7 +574,9 @@ export default function Home() {
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Filter size={18} className="text-slate-500" />
-            <span className="text-sm font-semibold text-slate-700">조별 필터:</span>
+            <span className="text-sm font-semibold text-slate-700">
+              조별 필터:
+            </span>
             <select
               value={selectedTeam}
               onChange={(e) => setSelectedTeam(e.target.value)}
@@ -536,7 +622,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 상세보기 모달 팝업 */}
+      {/* 상세보기 / 수정하기 모달 팝업 */}
       {selectedEvent && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-5 max-h-[90vh] overflow-y-auto">
@@ -544,151 +630,346 @@ export default function Home() {
               <div className="flex items-center gap-2">
                 <span
                   className="px-2.5 py-1 rounded-md text-xs font-bold text-white"
-                  style={{ backgroundColor: selectedEvent.backgroundColor }}
+                  style={{
+                    backgroundColor:
+                      TEAM_COLORS[editForm.team] || selectedEvent.backgroundColor,
+                  }}
                 >
-                  {selectedEvent.extendedProps.team}
+                  {editForm.team || selectedEvent.extendedProps.team}
                 </span>
                 <h3 className="text-lg font-bold text-slate-800">
-                  {selectedEvent.extendedProps.seq ? `[NO.${selectedEvent.extendedProps.seq}] ` : ""}현장점검 상세정보
+                  {isEditing ? "현장점검 정보 수정" : "현장점검 상세정보"}
                 </h3>
               </div>
               <button
-                onClick={() => setSelectedEvent(null)}
+                onClick={() => {
+                  setSelectedEvent(null);
+                  setIsEditing(false);
+                }}
                 className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition"
               >
                 <X size={18} />
               </button>
             </div>
 
-            <div className="space-y-4 text-sm">
-              {/* 공사명 */}
-              <div className="flex items-start gap-3">
-                <Building className="text-blue-500 shrink-0 mt-0.5" size={18} />
+            {isEditing ? (
+              /* --- 수정 모드 폼 --- */
+              <div className="space-y-4 text-xs">
                 <div>
-                  <span className="text-xs font-semibold text-slate-400 block">공사명</span>
-                  <span className="font-bold text-slate-800 text-base">{selectedEvent.extendedProps.projectName}</span>
-                  {(selectedEvent.extendedProps.orderType || selectedEvent.extendedProps.category) && (
-                    <div className="mt-1 flex gap-1.5">
-                      {selectedEvent.extendedProps.orderType && (
-                        <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[11px] font-medium">
-                          {selectedEvent.extendedProps.orderType}
-                        </span>
-                      )}
-                      {selectedEvent.extendedProps.category && (
-                        <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded text-[11px] font-medium">
-                          {selectedEvent.extendedProps.category}
-                        </span>
-                      )}
-                    </div>
-                  )}
+                  <label className="font-semibold text-slate-600 block mb-1">
+                    현장점검 담당조
+                  </label>
+                  <select
+                    value={editForm.team}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, team: e.target.value })
+                    }
+                    className="w-full border p-2 rounded-lg"
+                  >
+                    <option value="1조">1조</option>
+                    <option value="2조">2조</option>
+                    <option value="3조">3조</option>
+                    <option value="TF1조">TF1조</option>
+                    <option value="TF2조">TF2조</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-semibold text-slate-600 block mb-1">
+                    공사명
+                  </label>
+                  <input
+                    type="text"
+                    value={editForm.projectName}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, projectName: e.target.value })
+                    }
+                    className="w-full border p-2 rounded-lg"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-semibold text-slate-600 block mb-1">
+                    현장점검 예정일
+                  </label>
+                  <input
+                    type="date"
+                    value={editForm.checkDate}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, checkDate: e.target.value })
+                    }
+                    className="w-full border p-2 rounded-lg"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-semibold text-slate-600 block mb-1">
+                    현장사무실 주소
+                  </label>
+                  <input
+                    type="text"
+                    value={editForm.address}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, address: e.target.value })
+                    }
+                    className="w-full border p-2 rounded-lg"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="font-semibold text-slate-600 block mb-1">
+                      시공사
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.builder}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, builder: e.target.value })
+                      }
+                      className="w-full border p-2 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-semibold text-slate-600 block mb-1">
+                      감리사
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.supervisor}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, supervisor: e.target.value })
+                      }
+                      className="w-full border p-2 rounded-lg"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="font-semibold text-slate-600 block mb-1">
+                      현장대리인 성명
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.agentName}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, agentName: e.target.value })
+                      }
+                      className="w-full border p-2 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-semibold text-slate-600 block mb-1">
+                      현장대리인 전화번호
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.agentPhone}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, agentPhone: e.target.value })
+                      }
+                      className="w-full border p-2 rounded-lg"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="font-semibold text-slate-600 block mb-1">
+                    공사진행상태 / 비고
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={editForm.progressStatus}
+                    onChange={(e) =>
+                      setEditForm({
+                        ...editForm,
+                        progressStatus: e.target.value,
+                      })
+                    }
+                    className="w-full border p-2 rounded-lg"
+                  />
                 </div>
               </div>
-
-              {/* 점검예정일 */}
-              <div className="flex items-start gap-3">
-                <Calendar className="text-emerald-500 shrink-0 mt-0.5" size={18} />
-                <div>
-                  <span className="text-xs font-semibold text-slate-400 block">현장점검 예정일</span>
-                  <span className="font-bold text-emerald-600">{selectedEvent.start}</span>
+            ) : (
+              /* --- 상세 보기 모드 --- */
+              <div className="space-y-4 text-sm">
+                {/* 공사명 */}
+                <div className="flex items-start gap-3">
+                  <Building
+                    className="text-blue-500 shrink-0 mt-0.5"
+                    size={18}
+                  />
+                  <div>
+                    <span className="text-xs font-semibold text-slate-400 block">
+                      공사명
+                    </span>
+                    <span className="font-bold text-slate-800 text-base">
+                      {selectedEvent.extendedProps.projectName}
+                    </span>
+                  </div>
                 </div>
+
+                {/* 점검예정일 */}
+                <div className="flex items-start gap-3">
+                  <Calendar
+                    className="text-emerald-500 shrink-0 mt-0.5"
+                    size={18}
+                  />
+                  <div>
+                    <span className="text-xs font-semibold text-slate-400 block">
+                      현장점검 예정일
+                    </span>
+                    <span className="font-bold text-emerald-600">
+                      {selectedEvent.start}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 현장사무실 주소 (네비게이션 연동) */}
+                {selectedEvent.extendedProps.address && (
+                  <div className="flex items-start gap-3">
+                    <MapPin
+                      className="text-rose-500 shrink-0 mt-0.5"
+                      size={18}
+                    />
+                    <div className="w-full">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-slate-400 block">
+                          현장사무실 주소
+                        </span>
+                        <a
+                          href={`https://map.kakao.com/link/search/${encodeURIComponent(
+                            selectedEvent.extendedProps.address
+                          )}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-1 text-[11px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded hover:bg-blue-100 transition"
+                        >
+                          <Navigation size={12} />
+                          카카오맵 네비
+                        </a>
+                      </div>
+                      <span className="text-slate-700 block mt-1">
+                        {selectedEvent.extendedProps.address}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* 시공사 & 감리사 */}
+                {(selectedEvent.extendedProps.builder ||
+                  selectedEvent.extendedProps.supervisor) && (
+                  <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    {selectedEvent.extendedProps.builder && (
+                      <div>
+                        <span className="text-[11px] font-semibold text-slate-400 block">
+                          시공사
+                        </span>
+                        <span className="text-xs font-semibold text-slate-800">
+                          {selectedEvent.extendedProps.builder}
+                        </span>
+                      </div>
+                    )}
+                    {selectedEvent.extendedProps.supervisor && (
+                      <div>
+                        <span className="text-[11px] font-semibold text-slate-400 block">
+                          감리사
+                        </span>
+                        <span className="text-xs font-semibold text-slate-800">
+                          {selectedEvent.extendedProps.supervisor}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 현장대리인 정보 (전화 바로 연결) */}
+                {(selectedEvent.extendedProps.agentName ||
+                  selectedEvent.extendedProps.agentPhone) && (
+                  <div className="space-y-1.5 bg-blue-50/60 p-3 rounded-xl border border-blue-100">
+                    <span className="text-[11px] font-bold text-blue-700 block">
+                      현장대리인 정보
+                    </span>
+                    <div className="flex items-center gap-4 text-xs text-slate-700">
+                      {selectedEvent.extendedProps.agentName && (
+                        <span className="flex items-center gap-1 font-semibold">
+                          <User size={14} className="text-blue-500" />
+                          {selectedEvent.extendedProps.agentName}
+                        </span>
+                      )}
+                      {selectedEvent.extendedProps.agentPhone && (
+                        <a
+                          href={`tel:${selectedEvent.extendedProps.agentPhone.replace(
+                            /[^\d]/g,
+                            ""
+                          )}`}
+                          className="flex items-center gap-1 font-bold text-blue-600 underline hover:text-blue-800 transition"
+                          title="바로 전화걸기"
+                        >
+                          <Phone size={14} className="text-blue-500" />
+                          {selectedEvent.extendedProps.agentPhone} (전화연결)
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 공사진행상태 / 비고 */}
+                {selectedEvent.extendedProps.progressStatus && (
+                  <div className="flex items-start gap-3">
+                    <FileText
+                      className="text-amber-500 shrink-0 mt-0.5"
+                      size={18}
+                    />
+                    <div className="w-full">
+                      <span className="text-xs font-semibold text-slate-400 block">
+                        공사진행상태 (비고)
+                      </span>
+                      <p className="text-slate-700 whitespace-pre-wrap bg-slate-50 p-3 rounded-lg border border-slate-200 mt-1 text-xs leading-relaxed">
+                        {selectedEvent.extendedProps.progressStatus}
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
+            )}
 
-              {/* 현장사무실 주소 */}
-              {selectedEvent.extendedProps.address && (
-                <div className="flex items-start gap-3">
-                  <MapPin className="text-rose-500 shrink-0 mt-0.5" size={18} />
-                  <div>
-                    <span className="text-xs font-semibold text-slate-400 block">현장사무실 주소</span>
-                    <span className="text-slate-700">{selectedEvent.extendedProps.address}</span>
-                  </div>
-                </div>
+            {/* 하단 버튼 영역 */}
+            <div className="pt-2 flex justify-between items-center border-t">
+              {isEditing ? (
+                <>
+                  <button
+                    onClick={() => setIsEditing(false)}
+                    className="text-xs text-slate-500 hover:text-slate-700"
+                  >
+                    취소
+                  </button>
+                  <button
+                    onClick={handleSaveEdit}
+                    className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition"
+                  >
+                    <Check size={14} />
+                    저장하기
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setIsEditing(true)}
+                    className="flex items-center gap-1.5 text-blue-600 hover:text-blue-700 bg-blue-50 px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                  >
+                    <Edit2 size={14} />
+                    수정하기
+                  </button>
+                  <button
+                    onClick={() => setSelectedEvent(null)}
+                    className="bg-slate-800 hover:bg-slate-900 text-white text-xs font-medium px-4 py-2 rounded-lg transition"
+                  >
+                    닫기
+                  </button>
+                </>
               )}
-
-              {/* 발주처 */}
-              {selectedEvent.extendedProps.client && (
-                <div className="flex items-start gap-3">
-                  <Building className="text-purple-500 shrink-0 mt-0.5" size={18} />
-                  <div>
-                    <span className="text-xs font-semibold text-slate-400 block">발주처 (인·허가 기관)</span>
-                    <span className="text-slate-700">{selectedEvent.extendedProps.client}</span>
-                  </div>
-                </div>
-              )}
-
-              {/* 시공사 & 감리사 */}
-              {(selectedEvent.extendedProps.builder || selectedEvent.extendedProps.supervisor) && (
-                <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  {selectedEvent.extendedProps.builder && (
-                    <div>
-                      <span className="text-[11px] font-semibold text-slate-400 block">시공사</span>
-                      <span className="text-xs font-semibold text-slate-800">{selectedEvent.extendedProps.builder}</span>
-                    </div>
-                  )}
-                  {selectedEvent.extendedProps.supervisor && (
-                    <div>
-                      <span className="text-[11px] font-semibold text-slate-400 block">감리사</span>
-                      <span className="text-xs font-semibold text-slate-800">{selectedEvent.extendedProps.supervisor}</span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* 현장대리인 정보 */}
-              {(selectedEvent.extendedProps.agentName || selectedEvent.extendedProps.agentPhone) && (
-                <div className="space-y-1.5 bg-blue-50/60 p-3 rounded-xl border border-blue-100">
-                  <span className="text-[11px] font-bold text-blue-700 block">현장대리인 정보</span>
-                  <div className="flex items-center gap-4 text-xs text-slate-700">
-                    {selectedEvent.extendedProps.agentName && (
-                      <span className="flex items-center gap-1 font-semibold">
-                        <User size={14} className="text-blue-500" />
-                        {selectedEvent.extendedProps.agentName}
-                      </span>
-                    )}
-                    {selectedEvent.extendedProps.agentPhone && (
-                      <span className="flex items-center gap-1">
-                        <Phone size={14} className="text-blue-500" />
-                        {selectedEvent.extendedProps.agentPhone}
-                      </span>
-                    )}
-                  </div>
-                  {selectedEvent.extendedProps.agentEmail && (
-                    <div className="flex items-center gap-1 text-xs text-slate-600">
-                      <Mail size={14} className="text-blue-500" />
-                      {selectedEvent.extendedProps.agentEmail}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* 공사기간 */}
-              {(selectedEvent.extendedProps.startDate || selectedEvent.extendedProps.endDate) && (
-                <div className="text-xs text-slate-500">
-                  <span className="font-semibold text-slate-400">공사기간: </span>
-                  {selectedEvent.extendedProps.startDate} ~ {selectedEvent.extendedProps.endDate}
-                </div>
-              )}
-
-              {/* 공사진행상태 / 비고 */}
-              {selectedEvent.extendedProps.progressStatus && (
-                <div className="flex items-start gap-3">
-                  <FileText className="text-amber-500 shrink-0 mt-0.5" size={18} />
-                  <div className="w-full">
-                    <span className="text-xs font-semibold text-slate-400 block">공사진행상태 (비고)</span>
-                    <p className="text-slate-700 whitespace-pre-wrap bg-slate-50 p-3 rounded-lg border border-slate-200 mt-1 text-xs leading-relaxed">
-                      {selectedEvent.extendedProps.progressStatus}
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="pt-2 flex justify-end">
-              <button
-                onClick={() => setSelectedEvent(null)}
-                className="bg-slate-800 hover:bg-slate-900 text-white text-xs font-medium px-4 py-2 rounded-lg transition"
-              >
-                닫기
-              </button>
             </div>
           </div>
         </div>
