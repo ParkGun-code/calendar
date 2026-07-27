@@ -5,10 +5,9 @@ import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import * as XLSX from "xlsx";
-import { Upload, Filter, Trash2, RefreshCw } from "lucide-react";
+import { Upload, Filter, Trash2, RefreshCw, X, Calendar, MapPin, User, FileText } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
-// Supabase 클라이언트를 안전하게 생성 (Invalid URL 에러 방지)
 const getSupabaseClient = () => {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -43,11 +42,13 @@ const TEAM_COLORS: Record<string, string> = {
   "TF2조": "#EC4899",
 };
 
-// "05.11." 또는 "20260323" 또는 Date/Serial 포맷 변환
+// "05.11." 문자열을 YYYY-MM-DD 포맷으로 변환
 const parseSpecialDate = (val: any): string => {
-  if (!val) return new Date().toISOString().split("T")[0];
+  if (!val) return "";
 
   const strVal = String(val).trim();
+  
+  // "05.11." / "05.11" 형태 매칭
   const mmddMatch = strVal.match(/^(\d{1,2})[\.\/-](\d{1,2})[\.]?$/);
   if (mmddMatch) {
     const currentYear = new Date().getFullYear();
@@ -86,7 +87,7 @@ const parseSpecialDate = (val: any): string => {
     return `${y}-${m}-${d}`;
   }
 
-  return new Date().toISOString().split("T")[0];
+  return "";
 };
 
 export default function Home() {
@@ -98,6 +99,8 @@ export default function Home() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [selectedTeam, setSelectedTeam] = useState<string>("all");
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchEvents = async () => {
@@ -184,22 +187,23 @@ export default function Home() {
 
         const sheetData: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
 
-        if (sheetData.length === 0) {
-          alert("엑셀 파일에 데이터가 없습니다.");
+        if (sheetData.length < 3) {
+          alert("엑셀 데이터가 부족합니다.");
           setIsLoading(false);
           return;
         }
 
+        // 헤더 행 탐색 (우기대비 엑셀 양식 3행에 헤더 위치)
         let headerRowIdx = -1;
         for (let i = 0; i < Math.min(sheetData.length, 10); i++) {
           const rowStr = sheetData[i].map(c => String(c).replace(/\s+/g, "")).join(" ");
-          if (rowStr.includes("담당조") || rowStr.includes("점검예정일") || rowStr.includes("공사명") || rowStr.includes("점검지역")) {
+          if (rowStr.includes("담당조") || rowStr.includes("점검예정일") || rowStr.includes("공사명")) {
             headerRowIdx = i;
             break;
           }
         }
 
-        if (headerRowIdx === -1) headerRowIdx = 0;
+        if (headerRowIdx === -1) headerRowIdx = 2; // 찾지 못한 경우 기본 3번째 행
 
         const headers = sheetData[headerRowIdx].map(h => String(h).trim().replace(/\s+/g, ""));
 
@@ -211,10 +215,10 @@ export default function Home() {
           return -1;
         };
 
-        const teamColIdx = findColIdx("담당조", "조", "구분", "점검조");
-        const dateColIdx = findColIdx("점검예정일", "시작일", "점검일", "일자", "날짜", "착공일");
-        const nameColIdx = findColIdx("공사명", "점검지역", "지역", "장소", "내용");
-        const memberColIdx = findColIdx("성명", "점검자", "참석자", "담당자", "시공회사명");
+        const teamColIdx = findColIdx("담당조", "조", "구분");
+        const dateColIdx = findColIdx("점검예정일", "시작일", "점검일");
+        const nameColIdx = findColIdx("공사명", "점검지역", "장소");
+        const memberColIdx = findColIdx("시공회사명", "성명", "점검자", "담당자");
         const noteColIdx = findColIdx("공사진행상태", "비고", "메모");
 
         const newCalendarEvents: CalendarEvent[] = [];
@@ -228,25 +232,31 @@ export default function Home() {
           const rawDate = dateColIdx !== -1 ? row[dateColIdx] : "";
           const rawName = nameColIdx !== -1 ? String(row[nameColIdx] || "").trim() : "";
 
+          // '담당조' '점검예정일' 문구가 다시 들어간 헤더 행 예외 처리
+          if (teamRaw === "담당조" || String(rawDate).includes("점검예정일")) continue;
           if (!teamRaw && !rawDate && !rawName) continue;
+
+          const startDate = parseSpecialDate(rawDate);
+          if (!startDate) continue; // 날짜가 없는 데이터는 등록 제외
 
           const team = teamRaw || "1조";
           const color = TEAM_COLORS[team] || "#3B82F6";
-          const startDate = parseSpecialDate(rawDate);
           const location = rawName || "현장점검";
           const members = memberColIdx !== -1 ? String(row[memberColIdx] || "").trim() : "";
           const notes = noteColIdx !== -1 ? String(row[noteColIdx] || "").trim() : "";
 
           const title = `${team} - ${location}`;
 
-          newCalendarEvents.push({
+          const eventItem: CalendarEvent = {
             id: String(Date.now() + r),
             title,
             start: startDate,
             backgroundColor: color,
             borderColor: color,
             extendedProps: { team, members, location, notes },
-          });
+          };
+
+          newCalendarEvents.push(eventItem);
 
           dbRowsToInsert.push({
             title,
@@ -267,17 +277,16 @@ export default function Home() {
             await supabase.from("events").insert(dbRowsToInsert);
             await fetchEvents();
           } catch (e) {
-            console.error("DB 연동 시도 에러:", e);
+            console.error("DB 저장 오류:", e);
           }
         }
         
-        // DB 연결 유무와 상관없이 화면 달력에는 무조건 업로드한 일정을 즉시 출력!
         setEvents(newCalendarEvents);
         alert(`총 ${newCalendarEvents.length}건의 점검 일정이 캘린더에 표시되었습니다!`);
 
       } catch (err: any) {
-        console.error("엑셀 파일 파싱 에러:", err);
-        alert(`엑셀 파일 처리 오류: ${err.message || err}`);
+        console.error("엑셀 파싱 오류:", err);
+        alert(`엑셀 처리 오류: ${err.message || err}`);
       } finally {
         setIsLoading(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
@@ -285,6 +294,24 @@ export default function Home() {
     };
 
     reader.readAsBinaryString(file);
+  };
+
+  // 일정 클릭 시 상세 모달 열기
+  const handleEventClick = (info: any) => {
+    const evt = info.event;
+    setSelectedEvent({
+      id: evt.id,
+      title: evt.title,
+      start: evt.startStr,
+      backgroundColor: evt.backgroundColor,
+      borderColor: evt.borderColor,
+      extendedProps: {
+        team: evt.extendedProps.team,
+        members: evt.extendedProps.members,
+        location: evt.extendedProps.location,
+        notes: evt.extendedProps.notes,
+      },
+    });
   };
 
   const filteredEvents =
@@ -357,7 +384,7 @@ export default function Home() {
               현장점검 일정 캘린더
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              엑셀 파일(.xlsx)을 올리면 아래 캘린더에 조별로 즉시 표시되며 서버에 자동 저장됩니다.
+              엑셀 파일(.xlsx)을 올리면 아래 캘린더에 조별로 즉시 표시됩니다.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -431,8 +458,10 @@ export default function Home() {
           <FullCalendar
             plugins={[dayGridPlugin, interactionPlugin]}
             initialView="dayGridMonth"
+            initialDate="2026-05-01"
             locale="ko"
             events={filteredEvents}
+            eventClick={handleEventClick}
             headerToolbar={{
               left: "prev,next today",
               center: "title",
@@ -442,6 +471,80 @@ export default function Home() {
           />
         </div>
       </div>
+
+      {/* 일정 클릭 시 상세 모달 팝업 */}
+      {selectedEvent && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-5 animate-in fade-in zoom-in duration-150">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center gap-2">
+                <span
+                  className="px-2.5 py-1 rounded-md text-xs font-bold text-white"
+                  style={{ backgroundColor: selectedEvent.backgroundColor }}
+                >
+                  {selectedEvent.extendedProps.team}
+                </span>
+                <h3 className="text-lg font-bold text-slate-800">현장점검 상세정보</h3>
+              </div>
+              <button
+                onClick={() => setSelectedEvent(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3.5 text-sm">
+              <div className="flex items-start gap-3">
+                <MapPin className="text-blue-500 shrink-0 mt-0.5" size={18} />
+                <div>
+                  <span className="text-xs font-semibold text-slate-400 block">공사명 / 위치</span>
+                  <span className="font-semibold text-slate-800">{selectedEvent.extendedProps.location}</span>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <Calendar className="text-emerald-500 shrink-0 mt-0.5" size={18} />
+                <div>
+                  <span className="text-xs font-semibold text-slate-400 block">점검예정일</span>
+                  <span className="font-semibold text-slate-800">{selectedEvent.start}</span>
+                </div>
+              </div>
+
+              {selectedEvent.extendedProps.members && (
+                <div className="flex items-start gap-3">
+                  <User className="text-amber-500 shrink-0 mt-0.5" size={18} />
+                  <div>
+                    <span className="text-xs font-semibold text-slate-400 block">시공회사명 / 담당자</span>
+                    <span className="text-slate-700">{selectedEvent.extendedProps.members}</span>
+                  </div>
+                </div>
+              )}
+
+              {selectedEvent.extendedProps.notes && (
+                <div className="flex items-start gap-3">
+                  <FileText className="text-purple-500 shrink-0 mt-0.5" size={18} />
+                  <div>
+                    <span className="text-xs font-semibold text-slate-400 block">공사진행상태 / 비고</span>
+                    <p className="text-slate-700 whitespace-pre-wrap bg-slate-50 p-3 rounded-lg border border-slate-200 mt-1 text-xs">
+                      {selectedEvent.extendedProps.notes}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                onClick={() => setSelectedEvent(null)}
+                className="bg-slate-800 hover:bg-slate-900 text-white text-xs font-medium px-4 py-2 rounded-lg transition"
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
