@@ -8,14 +8,13 @@ import * as XLSX from "xlsx";
 import { Upload, Filter, Trash2 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
-// 환경변수 가져오기
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-
-// 빈 문자열로 수파베이스가 클래스 초기화 시 튕기는 현상 방지
-const supabase = (supabaseUrl && supabaseAnonKey)
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null;
+// Supabase 클라이언트를 안전하게 가져오는 헬퍼 함수
+const getSupabaseClient = () => {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+};
 
 interface CalendarEvent {
   id: string;
@@ -83,10 +82,9 @@ export default function Home() {
 
   // DB 데이터 조회
   const fetchEvents = async () => {
-    if (!supabase) {
-      console.error("Supabase 설정이 올바르지 않습니다.");
-      return;
-    }
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+
     setIsLoading(true);
     try {
       const { data, error } = await supabase.from("events").select("*");
@@ -134,10 +132,12 @@ export default function Home() {
 
   // DB 전체 비우기
   const handleClearDatabase = async () => {
+    const supabase = getSupabaseClient();
     if (!supabase) {
-      alert("데이터베이스 연결 설정이 필요합니다.");
+      alert("데이터베이스 연결 설정이 올바르지 않습니다.");
       return;
     }
+
     if (!confirm("정말로 등록된 모든 일정을 삭제하시겠습니까?")) return;
     setIsLoading(true);
     try {
@@ -160,8 +160,9 @@ export default function Home() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const supabase = getSupabaseClient();
     if (!supabase) {
-      alert("데이터베이스 연결 설정이 되어있지 않습니다.");
+      alert("데이터베이스 연결 설정이 올바르지 않습니다.");
       return;
     }
 
