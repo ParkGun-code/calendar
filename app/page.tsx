@@ -528,8 +528,7 @@ export default function Home() {
               현장점검 일정 캘린더
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              현장점검 엑셀 파일(.xlsx)을 등록하면 아래 달력에 일정이
-              누적되어 표시됩니다.
+              
             </p>
           </div>
           <div className="flex items-center gap-2">
