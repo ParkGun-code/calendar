@@ -9,14 +9,16 @@ import { Upload, Filter, Trash2, RefreshCw, X, Calendar, MapPin, User, FileText 
 import { createClient } from "@supabase/supabase-js";
 
 const getSupabaseClient = () => {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key || !url.startsWith("http")) return null;
   try {
-    return createClient(url, key);
-  } catch {
-    return null;
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (url && key && url.startsWith("http")) {
+      return createClient(url, key);
+    }
+  } catch (e) {
+    console.warn("Supabase 클라이언트 초기화 생략:", e);
   }
+  return null;
 };
 
 interface CalendarEvent {
@@ -42,7 +44,7 @@ const TEAM_COLORS: Record<string, string> = {
   "TF2조": "#EC4899",
 };
 
-// Y열("05.11.")의 점검예정일 날짜를 YYYY-MM-DD로 정확하게 변환
+// "05.11." 또는 "05.11" 날짜 문자열을 YYYY-MM-DD 포맷으로 변환
 const parseYColumnDate = (val: any): string => {
   if (!val) return "";
 
@@ -57,7 +59,7 @@ const parseYColumnDate = (val: any): string => {
     return `${currentYear}-${m}-${d}`;
   }
 
-  // 엑셀 숫자 날짜인 경우
+  // 엑셀 숫자 날짜
   if (typeof val === "number") {
     const jsDate = XLSX.SSF.parse_date_code(val);
     if (jsDate) {
@@ -68,7 +70,7 @@ const parseYColumnDate = (val: any): string => {
     }
   }
 
-  // Date 객체인 경우
+  // Date 객체
   if (val instanceof Date) {
     const y = val.getFullYear();
     const m = String(val.getMonth() + 1).padStart(2, "0");
@@ -76,7 +78,7 @@ const parseYColumnDate = (val: any): string => {
     return `${y}-${m}-${d}`;
   }
 
-  // "20260511" 8자리 숫자
+  // 8자리 숫자 "20260511"
   if (/^\d{8}$/.test(strVal)) {
     return `${strVal.substring(0, 4)}-${strVal.substring(4, 6)}-${strVal.substring(6, 8)}`;
   }
@@ -115,7 +117,7 @@ export default function Home() {
       const { data, error } = await supabase.from("events").select("*");
       if (error) throw error;
 
-      if (data) {
+      if (data && data.length > 0) {
         const dbEvents: CalendarEvent[] = data.map((item: any) => ({
           id: String(item.id),
           title: item.title || "현장점검",
@@ -191,7 +193,7 @@ export default function Home() {
         const sheetData: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
 
         if (sheetData.length < 4) {
-          alert("엑셀 파일에 충분한 데이터가 없습니다.");
+          alert("엑셀 파일에 데이터가 부족합니다.");
           setIsLoading(false);
           return;
         }
@@ -199,28 +201,22 @@ export default function Home() {
         const newCalendarEvents: CalendarEvent[] = [];
         const dbRowsToInsert: any[] = [];
 
-        // 4번째 행(인덱스 3)부터 실제 점검 현장 데이터 시작
+        // 4번째 행(인덱스 3)부터 실제 데이터 처리
         for (let r = 3; r < sheetData.length; r++) {
           const row = sheetData[r];
           if (!row || row.length === 0) continue;
 
-          // 정확한 열 고정 지정:
-          // X열 (인덱스 23): 담당조
-          // Y열 (인덱스 24): 점검예정일 (예: 05.11.)
-          // F열 (인덱스 5): 공사명
-          // R열 (인덱스 17): 시공회사명
-          // W열 (인덱스 22): 공사진행상태
+          // 열 지정: X열(23)=담당조, Y열(24)=점검예정일, F열(5)=공사명, R열(17)=시공회사명, W열(22)=공사진행상태
           const teamRaw = String(row[23] || "").trim();
           const rawDate = row[24];
           const rawName = String(row[5] || "").trim();
           const members = String(row[17] || "").trim();
           const notes = String(row[22] || "").trim();
 
-          // 헤더 문구가 중복되어 들어간 경우 예외 처리
           if (teamRaw === "담당조" || String(rawDate).includes("점검예정일")) continue;
 
           const startDate = parseYColumnDate(rawDate);
-          if (!startDate) continue; // Y열 날짜 파싱 실패 시 건너뜀 (특정 하루 쏠림 원인 차단)
+          if (!startDate) continue;
 
           const team = teamRaw || "1조";
           const color = TEAM_COLORS[team] || "#3B82F6";
@@ -251,18 +247,20 @@ export default function Home() {
           });
         }
 
+        // 화면 캘린더에 무조건 즉시 일정을 뿌려줍니다.
+        setEvents(newCalendarEvents);
+
+        // Supabase에도 백그라운드로 데이터 저장을 시도합니다.
         const supabase = getSupabaseClient();
         if (supabase && dbRowsToInsert.length > 0) {
           try {
             await supabase.from("events").insert(dbRowsToInsert);
-            await fetchEvents();
           } catch (e) {
-            console.error("DB 저장 에러:", e);
+            console.error("DB 동기화 시도 중 에러:", e);
           }
         }
-        
-        setEvents(newCalendarEvents);
-        alert(`총 ${newCalendarEvents.length}건의 점검 일정이 5월/6월 날짜별로 정상 등록되었습니다!`);
+
+        alert(`총 ${newCalendarEvents.length}건의 점검 일정이 캘린더에 성공적으로 표시되었습니다!`);
 
       } catch (err: any) {
         console.error("엑셀 파싱 오류:", err);
