@@ -62,12 +62,13 @@ interface CalendarEvent {
   };
 }
 
+// 은은하고 모던한 파스텔톤 컬러 팔레트
 const TEAM_COLORS: Record<string, string> = {
-  "1조": "#3B82F6",
-  "2조": "#10B981",
-  "3조": "#F59E0B",
-  "TF1조": "#8B5CF6",
-  "TF2조": "#EC4899",
+  "1조": "#60A5FA",   // 소프트 파스텔 블루
+  "2조": "#34D399",   // 파스텔 민트/세이지
+  "3조": "#FBBF24",   // 웜 파스텔 앰버/옐로우
+  "TF1조": "#A78BFA", // 소프트 라벤더/퍼플
+  "TF2조": "#F472B6", // 파스텔 피치/핑크
 };
 
 const parseCheckDate = (val: any): string => {
@@ -158,31 +159,35 @@ export default function Home() {
       if (error) throw error;
 
       if (data && data.length > 0) {
-        const dbEvents: CalendarEvent[] = data.map((item: any) => ({
-          id: String(item.id),
-          title: item.title || "현장점검",
-          start: item.start_date,
-          backgroundColor: item.bg_color || "#3B82F6",
-          borderColor: item.border_color || "#3B82F6",
-          extendedProps: {
-            seq: item.seq || "",
-            orderType: item.order_type || "",
-            category: item.category || "",
-            client: item.client || "",
-            projectName: item.location || "",
-            address: item.address || "",
-            startDate: item.start_date_work || "",
-            endDate: item.end_date_work || "",
-            builder: item.members || "",
-            supervisor: item.supervisor || "",
-            agentName: item.agent_name || "",
-            agentPhone: item.agent_phone || "",
-            agentEmail: item.agent_email || "",
-            progressStatus: item.notes || "",
-            team: item.team || "1조",
-            checkDate: item.start_date || "",
-          },
-        }));
+        const dbEvents: CalendarEvent[] = data.map((item: any) => {
+          const team = item.team || "1조";
+          const color = TEAM_COLORS[team] || "#60A5FA";
+          return {
+            id: String(item.id),
+            title: item.title || "현장점검",
+            start: item.start_date,
+            backgroundColor: color,
+            borderColor: color,
+            extendedProps: {
+              seq: item.seq || "",
+              orderType: item.order_type || "",
+              category: item.category || "",
+              client: item.client || "",
+              projectName: item.location || "",
+              address: item.address || "",
+              startDate: item.start_date_work || "",
+              endDate: item.end_date_work || "",
+              builder: item.members || "",
+              supervisor: item.supervisor || "",
+              agentName: item.agent_name || "",
+              agentPhone: item.agent_phone || "",
+              agentEmail: item.agent_email || "",
+              progressStatus: item.notes || "",
+              team,
+              checkDate: item.start_date || "",
+            },
+          };
+        });
         setEvents(dbEvents);
       } else {
         setEvents([]);
@@ -210,7 +215,6 @@ export default function Home() {
     }
   };
 
-  // 1. 전체 일정 초기화
   const handleClearDatabase = async () => {
     const supabase = getSupabaseClient();
     if (!confirm("정말로 등록된 전체 일정을 삭제하시겠습니까?")) return;
@@ -230,7 +234,6 @@ export default function Home() {
     alert("모든 일정이 초기화되었습니다.");
   };
 
-  // 2. 특정 월의 데이터만 선택 삭제
   const handleDeleteSpecificMonth = async () => {
     if (!deleteMonth) {
       alert("삭제할 월을 선택하세요.");
@@ -247,7 +250,6 @@ export default function Home() {
 
     try {
       if (supabase) {
-        // DB에서 해당 월(YYYY-MM-%) 패턴에 맞는 데이터만 삭제
         const { error } = await supabase
           .from("events")
           .delete()
@@ -260,7 +262,6 @@ export default function Home() {
         }
       }
 
-      // 화면 상태에서도 선택한 월의 이벤트만 제거
       setEvents((prev) =>
         prev.filter((evt) => !evt.start.startsWith(deleteMonth))
       );
@@ -329,7 +330,7 @@ export default function Home() {
           if (!checkDate) continue;
 
           const team = teamRaw || "1조";
-          const color = TEAM_COLORS[team] || "#3B82F6";
+          const color = TEAM_COLORS[team] || "#60A5FA";
           const title = `${team} - ${projectName.replace(/\n/g, " ") || "현장점검"}`;
 
           const eventItem: CalendarEvent = {
@@ -450,7 +451,7 @@ export default function Home() {
     if (!selectedEvent) return;
 
     const updatedTeam = editForm.team || "1조";
-    const updatedColor = TEAM_COLORS[updatedTeam] || "#3B82F6";
+    const updatedColor = TEAM_COLORS[updatedTeam] || "#60A5FA";
     const updatedTitle = `${updatedTeam} - ${
       editForm.projectName || "현장점검"
     }`;
@@ -670,7 +671,7 @@ export default function Home() {
             {Object.entries(TEAM_COLORS).map(([team, color]) => (
               <span
                 key={team}
-                className="px-2.5 py-1 rounded-full text-xs font-semibold text-white"
+                className="px-3 py-1 rounded-full text-xs font-bold text-white shadow-sm"
                 style={{ backgroundColor: color }}
               >
                 {team}
