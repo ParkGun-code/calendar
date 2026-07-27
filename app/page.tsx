@@ -8,9 +8,14 @@ import * as XLSX from "xlsx";
 import { Upload, Filter, Trash2 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
+// 환경변수 가져오기
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// 빈 문자열로 수파베이스가 클래스 초기화 시 튕기는 현상 방지
+const supabase = (supabaseUrl && supabaseAnonKey)
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : null;
 
 interface CalendarEvent {
   id: string;
@@ -35,10 +40,10 @@ const TEAM_COLORS: Record<string, string> = {
   "TF2조": "#EC4899",
 };
 
-// 엑셀 날짜 변환 함수 (Excel serial date 또는 string 처리)
+// 엑셀 날짜 변환 함수
 const parseExcelDate = (val: any): string => {
   if (!val) return new Date().toISOString().split("T")[0];
-  
+
   if (typeof val === "number") {
     const jsDate = XLSX.SSF.parse_date_code(val);
     if (jsDate) {
@@ -47,6 +52,13 @@ const parseExcelDate = (val: any): string => {
       const d = String(jsDate.d).padStart(2, "0");
       return `${y}-${m}-${d}`;
     }
+  }
+
+  if (val instanceof Date) {
+    const y = val.getFullYear();
+    const m = String(val.getMonth() + 1).padStart(2, "0");
+    const d = String(val.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
   }
 
   const str = String(val).trim().replace(/\./g, "-").replace(/\//g, "-");
@@ -69,7 +81,12 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // DB 데이터 조회
   const fetchEvents = async () => {
+    if (!supabase) {
+      console.error("Supabase 설정이 올바르지 않습니다.");
+      return;
+    }
     setIsLoading(true);
     try {
       const { data, error } = await supabase.from("events").select("*");
@@ -92,8 +109,8 @@ export default function Home() {
         }));
         setEvents(dbEvents);
       }
-    } catch (err) {
-      console.error("DB 데이터 로딩 오류:", err);
+    } catch (err: any) {
+      console.error("DB 로딩 에러:", err);
     } finally {
       setIsLoading(false);
     }
@@ -107,7 +124,7 @@ export default function Home() {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (username === "molitdj" && password === "eowjscjd1!") {
+    if (username === "admin" && password === "1234") {
       setIsAuthenticated(true);
       setLoginError("");
     } else {
@@ -115,26 +132,38 @@ export default function Home() {
     }
   };
 
-  // DB 전체 비우기 (잘못 입력된 데이터 초기화용)
+  // DB 전체 비우기
   const handleClearDatabase = async () => {
+    if (!supabase) {
+      alert("데이터베이스 연결 설정이 필요합니다.");
+      return;
+    }
     if (!confirm("정말로 등록된 모든 일정을 삭제하시겠습니까?")) return;
     setIsLoading(true);
     try {
       const { error } = await supabase.from("events").delete().neq("id", 0);
-      if (error) throw error;
+      if (error) {
+        alert(`삭제 실패: ${error.message}`);
+        return;
+      }
       alert("모든 일정이 초기화되었습니다.");
       await fetchEvents();
-    } catch (err) {
+    } catch (err: any) {
       alert("초기화 중 오류가 발생했습니다.");
-      console.error(err);
     } finally {
       setIsLoading(false);
     }
   };
 
+  // 엑셀 파일 업로드
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (!supabase) {
+      alert("데이터베이스 연결 설정이 되어있지 않습니다.");
+      return;
+    }
 
     setIsLoading(true);
     const reader = new FileReader();
@@ -152,28 +181,18 @@ export default function Home() {
         }
 
         const rowsToInsert = data.map((row) => {
-          // 다양한 열 이름 조합 유연하게 매칭
-          const teamRaw =
-            row["조"] || row["구분"] || row["점검조"] || row["팀"] || "1조";
-          const team = String(teamRaw).trim();
+          const team = String(row["조"] || row["구분"] || row["점검조"] || "1조").trim();
           const color = TEAM_COLORS[team] || "#3B82F6";
 
-          const rawDate =
-            row["시작일"] ||
-            row["일자"] ||
-            row["날짜"] ||
-            row["점검일"] ||
-            row["점검일자"] ||
-            row["시작일자"];
-          const startDate = parseExcelDate(rawDate);
+          const rawStartDate = row["시작일"] || row["점검일"] || row["일자"] || row["날짜"] || row["시작일자"];
+          const startDate = parseExcelDate(rawStartDate);
 
           const rawEndDate = row["종료일"] || row["종료일자"];
           const endDate = rawEndDate ? parseExcelDate(rawEndDate) : null;
 
-          const location =
-            row["점검지역"] || row["지역"] || row["점검장소"] || row["장소"] || row["내용"] || "현장점검";
-          const members = row["점검자"] || row["참석자"] || row["담당자"] || "";
-          const notes = row["비고"] || row["메모"] || "";
+          const location = String(row["점검지역"] || row["지역"] || row["점검장소"] || row["장소"] || row["내용"] || "현장점검");
+          const members = String(row["점검자"] || row["참석자"] || row["담당자"] || "");
+          const notes = String(row["비고"] || row["메모"] || "");
 
           return {
             title: `${team} - ${location}`,
@@ -182,20 +201,22 @@ export default function Home() {
             bg_color: color,
             border_color: color,
             team: team,
-            members: String(members),
-            location: String(location),
-            notes: String(notes),
+            members: members,
+            location: location,
+            notes: notes,
           };
         });
 
         const { error } = await supabase.from("events").insert(rowsToInsert);
-        if (error) throw error;
+        if (error) {
+          alert(`저장 실패: ${error.message}`);
+          return;
+        }
 
-        alert("엑셀 데이터가 성공적으로 등록되었습니다!");
+        alert("엑셀 데이터가 정상 등록되었습니다!");
         await fetchEvents();
-      } catch (err) {
-        alert("업로드 중 오류가 발생했습니다. 엑셀 파일 형식을 확인해 주세요.");
-        console.error(err);
+      } catch (err: any) {
+        alert("엑셀 처리 중 오류가 발생했습니다.");
       } finally {
         setIsLoading(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
