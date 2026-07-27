@@ -8,7 +8,6 @@ import * as XLSX from "xlsx";
 import { Upload, Filter, Trash2, RefreshCw } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
-// Supabase 클라이언트 헬퍼
 const getSupabaseClient = () => {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -39,11 +38,21 @@ const TEAM_COLORS: Record<string, string> = {
   "TF2조": "#EC4899",
 };
 
-// 범용 엑셀 날짜 변환 로직 (다양한 엑셀 포맷 대응)
-const parseExcelDate = (val: any): string => {
+// "05.11." 또는 "20260323" 또는 Date/Serial 포맷을 YYYY-MM-DD로 정확히 변환
+const parseSpecialDate = (val: any): string => {
   if (!val) return new Date().toISOString().split("T")[0];
 
-  // 1. 숫자인 경우 (Excel Serial Date: 45412 등)
+  // 1. "05.11." 나 "05.11" 같은 MM.DD. 형태 처리
+  const strVal = String(val).trim();
+  const mmddMatch = strVal.match(/^(\d{1,2})[\.\/-](\d{1,2})[\.]?$/);
+  if (mmddMatch) {
+    const currentYear = new Date().getFullYear();
+    const m = String(mmddMatch[1]).padStart(2, "0");
+    const d = String(mmddMatch[2]).padStart(2, "0");
+    return `${currentYear}-${m}-${d}`;
+  }
+
+  // 2. 숫자인 경우 (Excel Serial Date)
   if (typeof val === "number") {
     const jsDate = XLSX.SSF.parse_date_code(val);
     if (jsDate) {
@@ -54,7 +63,7 @@ const parseExcelDate = (val: any): string => {
     }
   }
 
-  // 2. Date 객체인 경우
+  // 3. Date 객체
   if (val instanceof Date) {
     const y = val.getFullYear();
     const m = String(val.getMonth() + 1).padStart(2, "0");
@@ -62,16 +71,14 @@ const parseExcelDate = (val: any): string => {
     return `${y}-${m}-${d}`;
   }
 
-  // 3. 문자열인 경우 ("2026.05.10", "2026-05-10", "2026/05/10", "05/10/2026")
-  let str = String(val).trim();
-  str = str.replace(/\./g, "-").replace(/\//g, "-");
-
-  // YYYYMMDD 형태의 8자리 숫자 문자열 처리 (예: "20260510")
-  if (/^\d{8}$/.test(str)) {
-    return `${str.substring(0, 4)}-${str.substring(4, 6)}-${str.substring(6, 8)}`;
+  // 4. "20260323" 같은 8자리 문자열
+  if (/^\d{8}$/.test(strVal)) {
+    return `${strVal.substring(0, 4)}-${strVal.substring(4, 6)}-${strVal.substring(6, 8)}`;
   }
 
-  const dateObj = new Date(str);
+  // 5. 기타 표준 문자열
+  const cleanStr = strVal.replace(/\./g, "-").replace(/\//g, "-");
+  const dateObj = new Date(cleanStr);
   if (!isNaN(dateObj.getTime())) {
     const y = dateObj.getFullYear();
     const m = String(dateObj.getMonth() + 1).padStart(2, "0");
@@ -93,13 +100,9 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // DB 데이터 조회
   const fetchEvents = async () => {
     const supabase = getSupabaseClient();
-    if (!supabase) {
-      console.warn("Supabase 환경변수가 설정되지 않아 로컬 상태만 사용합니다.");
-      return;
-    }
+    if (!supabase) return;
 
     setIsLoading(true);
     try {
@@ -146,7 +149,6 @@ export default function Home() {
     }
   };
 
-  // DB 전체 비우기
   const handleClearDatabase = async () => {
     const supabase = getSupabaseClient();
     if (!confirm("정말로 등록된 모든 일정을 삭제하시겠습니까?")) return;
@@ -170,7 +172,6 @@ export default function Home() {
     alert("모든 일정이 초기화되었습니다.");
   };
 
-  // 엑셀 파일 업로드
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -184,66 +185,83 @@ export default function Home() {
         const workbook = XLSX.read(bstr, { type: "binary", cellDates: true });
         const wsname = workbook.SheetNames[0];
         const ws = workbook.Sheets[wsname];
-        
-        // 엑셀 데이터를 JSON 배열로 변환
-        const data = XLSX.utils.sheet_to_json<any>(ws, { defval: "" });
 
-        if (data.length === 0) {
+        // 엑셀을 2D 배열 형태(header: 1)로 변환하여 상단 복합 헤더 행 자동 탐색
+        const sheetData: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+
+        if (sheetData.length === 0) {
           alert("엑셀 파일에 데이터가 없습니다.");
           setIsLoading(false);
           return;
         }
 
+        // 실제 헤더(열 이름) 행 위치 탐색 ("담당조", "점검예정일", "공사명", "조" 등이 포함된 행)
+        let headerRowIdx = -1;
+        for (let i = 0; i < Math.min(sheetData.length, 10); i++) {
+          const rowStr = sheetData[i].map(c => String(c).replace(/\s+/g, "")).join(" ");
+          if (rowStr.includes("담당조") || rowStr.includes("점검예정일") || rowStr.includes("공사명") || rowStr.includes("점검지역")) {
+            headerRowIdx = i;
+            break;
+          }
+        }
+
+        if (headerRowIdx === -1) {
+          headerRowIdx = 0; // 발견 못한 경우 기본 0번 행 사용
+        }
+
+        const headers = sheetData[headerRowIdx].map(h => String(h).trim().replace(/\s+/g, ""));
+
+        const findColIdx = (...keyNames: string[]) => {
+          for (const kn of keyNames) {
+            const idx = headers.findIndex(h => h.includes(kn));
+            if (idx !== -1) return idx;
+          }
+          return -1;
+        };
+
+        const teamColIdx = findColIdx("담당조", "조", "구분", "점검조");
+        const dateColIdx = findColIdx("점검예정일", "시작일", "점검일", "일자", "날짜", "착공일");
+        const nameColIdx = findColIdx("공사명", "점검지역", "지역", "장소", "내용");
+        const memberColIdx = findColIdx("성명", "점검자", "참석자", "담당자", "시공회사명");
+        const noteColIdx = findColIdx("공사진행상태", "비고", "메모");
+
         const newCalendarEvents: CalendarEvent[] = [];
         const dbRowsToInsert: any[] = [];
 
-        data.forEach((row: any, idx: number) => {
-          // 객체의 키들 중 대소문자/공백 제거하여 검색
-          const findVal = (...keys: string[]) => {
-            for (const key of keys) {
-              const matchedKey = Object.keys(row).find(
-                (k) => k.trim().replace(/\s+/g, "") === key.replace(/\s+/g, "")
-              );
-              if (matchedKey && row[matchedKey] !== undefined && row[matchedKey] !== "") {
-                return row[matchedKey];
-              }
-            }
-            return "";
-          };
+        // 헤더 다음 행부터 데이터 추출
+        for (let r = headerRowIdx + 1; r < sheetData.length; r++) {
+          const row = sheetData[r];
+          if (!row || row.length === 0) continue;
 
-          // 필드값 추출
-          const teamRaw = findVal("조", "구분", "점검조", "팀", "조구분") || "1조";
-          const team = String(teamRaw).trim();
+          const teamRaw = teamColIdx !== -1 ? String(row[teamColIdx] || "").trim() : "";
+          const rawDate = dateColIdx !== -1 ? row[dateColIdx] : "";
+          const rawName = nameColIdx !== -1 ? String(row[nameColIdx] || "").trim() : "";
+
+          // 주요 값이 모두 없으면 건너뜀
+          if (!teamRaw && !rawDate && !rawName) continue;
+
+          const team = teamRaw || "1조";
           const color = TEAM_COLORS[team] || "#3B82F6";
-
-          const rawStartDate = findVal("시작일", "점검일", "일자", "날짜", "시작일자", "점검일자", "시작");
-          const startDate = parseExcelDate(rawStartDate);
-
-          const rawEndDate = findVal("종료일", "종료일자", "종료");
-          const endDate = rawEndDate ? parseExcelDate(rawEndDate) : undefined;
-
-          const location = String(findVal("점검지역", "지역", "점검장소", "장소", "내용", "점검내용", "점검대상") || "현장점검");
-          const members = String(findVal("점검자", "참석자", "담당자", "점검인원", "명단") || "");
-          const notes = String(findVal("비고", "메모", "특이사항") || "");
+          const startDate = parseSpecialDate(rawDate);
+          const location = rawName || "현장점검";
+          const members = memberColIdx !== -1 ? String(row[memberColIdx] || "").trim() : "";
+          const notes = noteColIdx !== -1 ? String(row[noteColIdx] || "").trim() : "";
 
           const title = `${team} - ${location}`;
 
-          // 화면 출력용 이벤트
           newCalendarEvents.push({
-            id: String(Date.now() + idx),
+            id: String(Date.now() + r),
             title,
             start: startDate,
-            end: endDate,
             backgroundColor: color,
             borderColor: color,
             extendedProps: { team, members, location, notes },
           });
 
-          // DB 저장용 데이터
           dbRowsToInsert.push({
             title,
             start_date: startDate,
-            end_date: endDate || null,
+            end_date: null,
             bg_color: color,
             border_color: color,
             team,
@@ -251,27 +269,25 @@ export default function Home() {
             location,
             notes,
           });
-        });
+        }
 
-        // Supabase DB에 저장 시도
         const supabase = getSupabaseClient();
-        if (supabase) {
+        if (supabase && dbRowsToInsert.length > 0) {
           const { error } = await supabase.from("events").insert(dbRowsToInsert);
           if (error) {
             console.error("DB 저장 에러:", error);
-            alert(`DB 저장 중 에러가 발생했습니다: ${error.message}\n(화면에는 일정이 표시됩니다.)`);
+            alert(`DB 저장 에러: ${error.message}`);
           } else {
-            alert(`총 ${dbRowsToInsert.length}건의 일정이 데이터베이스에 저장되었습니다!`);
+            alert(`총 ${dbRowsToInsert.length}건의 일정이 업로드되었습니다!`);
           }
           await fetchEvents();
         } else {
-          // DB 연결 없어도 화면에는 올린 데이터 즉시 반영
           setEvents((prev) => [...prev, ...newCalendarEvents]);
           alert(`총 ${newCalendarEvents.length}건의 일정이 화면에 표시되었습니다.`);
         }
       } catch (err: any) {
         console.error("엑셀 파일 파싱 에러:", err);
-        alert(`엑셀 파일 처리 중 오류가 발생했습니다: ${err.message || err}`);
+        alert(`엑셀 파일 처리 오류: ${err.message || err}`);
       } finally {
         setIsLoading(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
