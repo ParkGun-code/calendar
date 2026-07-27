@@ -1,11 +1,17 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import * as XLSX from "xlsx";
 import { Upload, Filter } from "lucide-react";
+import { createClient } from "@supabase/supabase-js";
+
+// Vercel에 설정한 환경변수를 불러와 Supabase 클라이언트 연결
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 interface CalendarEvent {
   id: string;
@@ -23,29 +29,64 @@ interface CalendarEvent {
 }
 
 const TEAM_COLORS: Record<string, string> = {
-  "1조": "#3B82F6", // Blue
-  "2조": "#10B981", // Green
-  "3조": "#F59E0B", // Yellow
-  "TF1조": "#8B5CF6", // Purple
-  "TF2조": "#EC4899", // Pink
+  "1조": "#3B82F6",
+  "2조": "#10B981",
+  "3조": "#F59E0B",
+  "TF1조": "#8B5CF6",
+  "TF2조": "#EC4899",
 };
 
 export default function Home() {
-  // --- 1. 로그인 상태 관리 ---
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
 
-  // --- 2. 캘린더 데이터 및 필터 상태 ---
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [selectedTeam, setSelectedTeam] = useState<string>("all");
+  const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 로그인 처리 함수
+  // DB에서 데이터 읽어오기
+  const fetchEvents = async () => {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase.from("events").select("*");
+      if (error) throw error;
+
+      if (data) {
+        const dbEvents: CalendarEvent[] = data.map((item: any) => ({
+          id: String(item.id),
+          title: item.title,
+          start: item.start_date,
+          end: item.end_date || undefined,
+          backgroundColor: item.bg_color || "#3B82F6",
+          borderColor: item.border_color || "#3B82F6",
+          extendedProps: {
+            team: item.team || "",
+            members: item.members || "",
+            location: item.location || "",
+            notes: item.notes || "",
+          },
+        }));
+        setEvents(dbEvents);
+      }
+    } catch (err) {
+      console.error("DB 데이터 로딩 오류:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchEvents();
+    }
+  }, [isAuthenticated]);
+
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (username === "molitdj" && password === "eowjscjd1!") {
+    if (username === "admin" && password === "1234") {
       setIsAuthenticated(true);
       setLoginError("");
     } else {
@@ -53,13 +94,14 @@ export default function Home() {
     }
   };
 
-  // 엑셀 파일 처리 함수
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 엑셀 선택 시 DB에 차곡차곡 누적 저장
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setIsLoading(true);
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       try {
         const bstr = evt.target?.result;
         const workbook = XLSX.read(bstr, { type: "binary" });
@@ -67,42 +109,42 @@ export default function Home() {
         const ws = workbook.Sheets[wsname];
         const data = XLSX.utils.sheet_to_json<any>(ws);
 
-        const newEvents: CalendarEvent[] = data.map((row, index) => {
+        const rowsToInsert = data.map((row) => {
           const team = row["조"] || row["구분"] || "1조";
           const color = TEAM_COLORS[team] || "#6B7280";
-
           return {
-            id: String(index + 1),
             title: `${team} - ${row["점검지역"] || row["내용"] || "현장점검"}`,
-            start: row["시작일"] || row["날짜"] || new Date().toISOString().split("T")[0],
-            end: row["종료일"] || undefined,
-            backgroundColor: color,
-            borderColor: color,
-            extendedProps: {
-              team: team,
-              members: row["점검자"] || row["참석자"] || "",
-              location: row["점검지역"] || "",
-              notes: row["비고"] || "",
-            },
+            start_date: row["시작일"] || row["날짜"] || new Date().toISOString().split("T")[0],
+            end_date: row["종료일"] || null,
+            bg_color: color,
+            border_color: color,
+            team: team,
+            members: row["점검자"] || row["참석자"] || "",
+            location: row["점검지역"] || "",
+            notes: row["비고"] || "",
           };
         });
 
-        setEvents(newEvents);
+        const { error } = await supabase.from("events").insert(rowsToInsert);
+        if (error) throw error;
+
+        alert("엑셀 데이터가 데이터베이스에 성공적으로 저장되었습니다!");
+        await fetchEvents();
       } catch (err) {
-        alert("엑셀 파일을 읽는 중 오류가 발생했습니다. 파일 양식을 확인해 주세요.");
+        alert("업로드 중 오류가 발생했습니다. DB 연동 상태를 확인해 주세요.");
+        console.error(err);
+      } finally {
+        setIsLoading(false);
       }
     };
     reader.readAsBinaryString(file);
   };
 
-  // 선택된 조별 필터링
-  const filteredEvents = selectedTeam === "all"
-    ? events
-    : events.filter((evt) => evt.extendedProps.team === selectedTeam);
+  const filteredEvents =
+    selectedTeam === "all"
+      ? events
+      : events.filter((evt) => evt.extendedProps.team === selectedTeam);
 
-  // ----------------------------------------------------
-  // A. 로그인 전 화면
-  // ----------------------------------------------------
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
@@ -159,20 +201,16 @@ export default function Home() {
     );
   }
 
-  // ----------------------------------------------------
-  // B. 로그인 성공 후 캘린더 메인 화면
-  // ----------------------------------------------------
   return (
     <main className="min-h-screen bg-slate-50 p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* 상단 헤더 */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-800">
               현장점검 일정 캘린더
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              엑셀 파일(.xlsx)을 올리면 아래 캘린더에 조별로 즉시 표시됩니다.
+              엑셀 파일(.xlsx)을 올리면 아래 캘린더에 조별로 즉시 표시되며 서버에 자동 저장됩니다.
             </p>
           </div>
           <div>
@@ -185,15 +223,15 @@ export default function Home() {
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium text-sm transition shadow-sm"
+              disabled={isLoading}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium text-sm transition shadow-sm disabled:bg-slate-400"
             >
               <Upload size={16} />
-              엑셀 파일 선택
+              {isLoading ? "데이터 처리 중..." : "엑셀 파일 선택"}
             </button>
           </div>
         </div>
 
-        {/* 조별 필터 영역 */}
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Filter size={18} className="text-slate-500" />
@@ -212,7 +250,6 @@ export default function Home() {
             </select>
           </div>
 
-          {/* 조별 배지 뱃지 표시 */}
           <div className="flex flex-wrap items-center gap-2">
             {Object.entries(TEAM_COLORS).map(([team, color]) => (
               <span
@@ -226,7 +263,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* FullCalendar 달력 */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <FullCalendar
             plugins={[dayGridPlugin, interactionPlugin]}
