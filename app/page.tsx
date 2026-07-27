@@ -15,7 +15,6 @@ import {
   MapPin,
   User,
   Phone,
-  Mail,
   Building,
   FileText,
   Navigation,
@@ -75,7 +74,6 @@ const parseCheckDate = (val: any): string => {
   if (!val) return "";
   const strVal = String(val).trim();
 
-  // "08.03." / "08.03" / "8.3" 형태 인식
   const mmddMatch = strVal.match(/^(\d{1,2})[\.\/-](\d{1,2})[\.]?$/);
   if (mmddMatch) {
     const m = String(mmddMatch[1]).padStart(2, "0");
@@ -253,30 +251,13 @@ export default function Home() {
           return;
         }
 
-        // 실제 데이터 시작 행 유동적 검색 (담당조/점검예정일/연번 밑 첫 데이터행)
-        let startRowIdx = -1;
-        for (let r = 0; r < sheetData.length; r++) {
-          const rowStr = sheetData[r].map((c) => String(c)).join(" ");
-          // B열 또는 C열 등에 데이터가 있기 시작하거나, 1번 연번이 등장하는 행 찾기
-          if (
-            (rowStr.includes("공공") || rowStr.includes("민간") || rowStr.includes("건축") || rowStr.includes("토목")) &&
-            !rowStr.includes("구분") && !rowStr.includes("발주")
-          ) {
-            startRowIdx = r;
-            break;
-          }
-        }
-
-        if (startRowIdx === -1) startRowIdx = 4; // 기본값 5행 (인덱스 4)
-
         const newCalendarEvents: CalendarEvent[] = [];
         const dbRowsToInsert: any[] = [];
 
-        for (let r = startRowIdx; r < sheetData.length; r++) {
+        for (let r = 0; r < sheetData.length; r++) {
           const row = sheetData[r];
           if (!row || row.length === 0) continue;
 
-          // A열=0, B열=1, C열=2, D열=3, E열=4, F열=5, G열=6 ... X열=23, Y열=24
           const seq = String(row[1] || "").trim();
           const orderType = String(row[2] || "").trim();
           const category = String(row[3] || "").trim();
@@ -294,18 +275,17 @@ export default function Home() {
           const teamRaw = String(row[23] || "").trim();
           const rawCheckDate = row[24];
 
-          // 헤더 텍스트 예외 처리
           if (teamRaw === "담당조" || String(rawCheckDate).includes("점검예정일")) continue;
 
           const checkDate = parseCheckDate(rawCheckDate);
-          if (!checkDate) continue; // 점검예정일이 없는 행 제외
+          if (!checkDate) continue;
 
           const team = teamRaw || "1조";
           const color = TEAM_COLORS[team] || "#3B82F6";
           const title = `${team} - ${projectName.replace(/\n/g, " ") || "현장점검"}`;
 
           const eventItem: CalendarEvent = {
-            id: String(Date.now() + r),
+            id: String(Date.now() + Math.random() * 10000 + r),
             title,
             start: checkDate,
             backgroundColor: color,
@@ -356,19 +336,22 @@ export default function Home() {
           });
         }
 
-        setEvents(newCalendarEvents);
+        // 1. 기존 화면 이벤트에 새로 업로드한 이벤트를 누적(Append)시킵니다.
+        setEvents((prev) => [...prev, ...newCalendarEvents]);
 
+        // 2. DB 저장 후 최신 데이터 전체를 다시 불러옵니다.
         const supabase = getSupabaseClient();
         if (supabase && dbRowsToInsert.length > 0) {
           try {
             await supabase.from("events").insert(dbRowsToInsert);
+            await fetchEvents(); // DB 전체 목록 재동기화
           } catch (e) {
             console.error("DB 동기화 에러:", e);
           }
         }
 
         alert(
-          `총 ${newCalendarEvents.length}건의 현장점검 일정이 캘린더에 정확히 등록되었습니다!`
+          `총 ${newCalendarEvents.length}건의 일정이 기존 달력에 추가되었습니다!`
         );
       } catch (err: any) {
         console.error("엑셀 파싱 오류:", err);
@@ -545,8 +528,8 @@ export default function Home() {
               현장점검 일정 캘린더
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              우기 대비 및 8월 현장점검 엑셀 파일(.xlsx)을 등록하면 아래 달력에 일정이
-              즉시 표시됩니다.
+              현장점검 엑셀 파일(.xlsx)을 등록하면 아래 달력에 일정이
+              누적되어 표시됩니다.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -625,7 +608,6 @@ export default function Home() {
           <FullCalendar
             plugins={[dayGridPlugin, interactionPlugin]}
             initialView="dayGridMonth"
-            initialDate="2026-08-01"
             locale="ko"
             events={filteredEvents}
             eventClick={handleEventClick}
