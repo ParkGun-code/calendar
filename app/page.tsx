@@ -42,13 +42,13 @@ const TEAM_COLORS: Record<string, string> = {
   "TF2조": "#EC4899",
 };
 
-// "05.11." 문자열을 YYYY-MM-DD 포맷으로 변환
-const parseSpecialDate = (val: any): string => {
+// Y열("05.11.")의 점검예정일 날짜를 YYYY-MM-DD로 정확하게 변환
+const parseYColumnDate = (val: any): string => {
   if (!val) return "";
 
   const strVal = String(val).trim();
-  
-  // "05.11." / "05.11" 형태 매칭
+
+  // "05.11." 또는 "05.11" 또는 "5.11" 형태 매칭
   const mmddMatch = strVal.match(/^(\d{1,2})[\.\/-](\d{1,2})[\.]?$/);
   if (mmddMatch) {
     const currentYear = new Date().getFullYear();
@@ -57,6 +57,7 @@ const parseSpecialDate = (val: any): string => {
     return `${currentYear}-${m}-${d}`;
   }
 
+  // 엑셀 숫자 날짜인 경우
   if (typeof val === "number") {
     const jsDate = XLSX.SSF.parse_date_code(val);
     if (jsDate) {
@@ -67,6 +68,7 @@ const parseSpecialDate = (val: any): string => {
     }
   }
 
+  // Date 객체인 경우
   if (val instanceof Date) {
     const y = val.getFullYear();
     const m = String(val.getMonth() + 1).padStart(2, "0");
@@ -74,6 +76,7 @@ const parseSpecialDate = (val: any): string => {
     return `${y}-${m}-${d}`;
   }
 
+  // "20260511" 8자리 숫자
   if (/^\d{8}$/.test(strVal)) {
     return `${strVal.substring(0, 4)}-${strVal.substring(4, 6)}-${strVal.substring(6, 8)}`;
   }
@@ -187,64 +190,41 @@ export default function Home() {
 
         const sheetData: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
 
-        if (sheetData.length < 3) {
-          alert("엑셀 데이터가 부족합니다.");
+        if (sheetData.length < 4) {
+          alert("엑셀 파일에 충분한 데이터가 없습니다.");
           setIsLoading(false);
           return;
         }
 
-        // 헤더 행 탐색 (우기대비 엑셀 양식 3행에 헤더 위치)
-        let headerRowIdx = -1;
-        for (let i = 0; i < Math.min(sheetData.length, 10); i++) {
-          const rowStr = sheetData[i].map(c => String(c).replace(/\s+/g, "")).join(" ");
-          if (rowStr.includes("담당조") || rowStr.includes("점검예정일") || rowStr.includes("공사명")) {
-            headerRowIdx = i;
-            break;
-          }
-        }
-
-        if (headerRowIdx === -1) headerRowIdx = 2; // 찾지 못한 경우 기본 3번째 행
-
-        const headers = sheetData[headerRowIdx].map(h => String(h).trim().replace(/\s+/g, ""));
-
-        const findColIdx = (...keyNames: string[]) => {
-          for (const kn of keyNames) {
-            const idx = headers.findIndex(h => h.includes(kn));
-            if (idx !== -1) return idx;
-          }
-          return -1;
-        };
-
-        const teamColIdx = findColIdx("담당조", "조", "구분");
-        const dateColIdx = findColIdx("점검예정일", "시작일", "점검일");
-        const nameColIdx = findColIdx("공사명", "점검지역", "장소");
-        const memberColIdx = findColIdx("시공회사명", "성명", "점검자", "담당자");
-        const noteColIdx = findColIdx("공사진행상태", "비고", "메모");
-
         const newCalendarEvents: CalendarEvent[] = [];
         const dbRowsToInsert: any[] = [];
 
-        for (let r = headerRowIdx + 1; r < sheetData.length; r++) {
+        // 4번째 행(인덱스 3)부터 실제 점검 현장 데이터 시작
+        for (let r = 3; r < sheetData.length; r++) {
           const row = sheetData[r];
           if (!row || row.length === 0) continue;
 
-          const teamRaw = teamColIdx !== -1 ? String(row[teamColIdx] || "").trim() : "";
-          const rawDate = dateColIdx !== -1 ? row[dateColIdx] : "";
-          const rawName = nameColIdx !== -1 ? String(row[nameColIdx] || "").trim() : "";
+          // 정확한 열 고정 지정:
+          // X열 (인덱스 23): 담당조
+          // Y열 (인덱스 24): 점검예정일 (예: 05.11.)
+          // F열 (인덱스 5): 공사명
+          // R열 (인덱스 17): 시공회사명
+          // W열 (인덱스 22): 공사진행상태
+          const teamRaw = String(row[23] || "").trim();
+          const rawDate = row[24];
+          const rawName = String(row[5] || "").trim();
+          const members = String(row[17] || "").trim();
+          const notes = String(row[22] || "").trim();
 
-          // '담당조' '점검예정일' 문구가 다시 들어간 헤더 행 예외 처리
+          // 헤더 문구가 중복되어 들어간 경우 예외 처리
           if (teamRaw === "담당조" || String(rawDate).includes("점검예정일")) continue;
-          if (!teamRaw && !rawDate && !rawName) continue;
 
-          const startDate = parseSpecialDate(rawDate);
-          if (!startDate) continue; // 날짜가 없는 데이터는 등록 제외
+          const startDate = parseYColumnDate(rawDate);
+          if (!startDate) continue; // Y열 날짜 파싱 실패 시 건너뜀 (특정 하루 쏠림 원인 차단)
 
           const team = teamRaw || "1조";
           const color = TEAM_COLORS[team] || "#3B82F6";
           const location = rawName || "현장점검";
-          const members = memberColIdx !== -1 ? String(row[memberColIdx] || "").trim() : "";
-          const notes = noteColIdx !== -1 ? String(row[noteColIdx] || "").trim() : "";
-
           const title = `${team} - ${location}`;
 
           const eventItem: CalendarEvent = {
@@ -277,12 +257,12 @@ export default function Home() {
             await supabase.from("events").insert(dbRowsToInsert);
             await fetchEvents();
           } catch (e) {
-            console.error("DB 저장 오류:", e);
+            console.error("DB 저장 에러:", e);
           }
         }
         
         setEvents(newCalendarEvents);
-        alert(`총 ${newCalendarEvents.length}건의 점검 일정이 캘린더에 표시되었습니다!`);
+        alert(`총 ${newCalendarEvents.length}건의 점검 일정이 5월/6월 날짜별로 정상 등록되었습니다!`);
 
       } catch (err: any) {
         console.error("엑셀 파싱 오류:", err);
@@ -296,7 +276,6 @@ export default function Home() {
     reader.readAsBinaryString(file);
   };
 
-  // 일정 클릭 시 상세 모달 열기
   const handleEventClick = (info: any) => {
     const evt = info.event;
     setSelectedEvent({
@@ -472,7 +451,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 일정 클릭 시 상세 모달 팝업 */}
+      {/* 상세보기 모달 팝업 */}
       {selectedEvent && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-5 animate-in fade-in zoom-in duration-150">
@@ -515,7 +494,7 @@ export default function Home() {
                 <div className="flex items-start gap-3">
                   <User className="text-amber-500 shrink-0 mt-0.5" size={18} />
                   <div>
-                    <span className="text-xs font-semibold text-slate-400 block">시공회사명 / 담당자</span>
+                    <span className="text-xs font-semibold text-slate-400 block">시공회사명</span>
                     <span className="text-slate-700">{selectedEvent.extendedProps.members}</span>
                   </div>
                 </div>
