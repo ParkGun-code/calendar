@@ -137,6 +137,7 @@ export default function Home() {
 
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [selectedTeam, setSelectedTeam] = useState<string>("all");
+  const [deleteMonth, setDeleteMonth] = useState<string>("2026-05");
   const [isLoading, setIsLoading] = useState(false);
 
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(
@@ -183,6 +184,8 @@ export default function Home() {
           },
         }));
         setEvents(dbEvents);
+      } else {
+        setEvents([]);
       }
     } catch (err: any) {
       console.error("DB 로딩 에러:", err);
@@ -207,9 +210,10 @@ export default function Home() {
     }
   };
 
+  // 1. 전체 일정 초기화
   const handleClearDatabase = async () => {
     const supabase = getSupabaseClient();
-    if (!confirm("정말로 등록된 모든 일정을 삭제하시겠습니까?")) return;
+    if (!confirm("정말로 등록된 전체 일정을 삭제하시겠습니까?")) return;
 
     if (supabase) {
       setIsLoading(true);
@@ -224,6 +228,50 @@ export default function Home() {
 
     setEvents([]);
     alert("모든 일정이 초기화되었습니다.");
+  };
+
+  // 2. 특정 월의 데이터만 선택 삭제
+  const handleDeleteSpecificMonth = async () => {
+    if (!deleteMonth) {
+      alert("삭제할 월을 선택하세요.");
+      return;
+    }
+
+    const yearMonthLabel = deleteMonth.replace("-", "년 ") + "월";
+    if (!confirm(`정말로 ${yearMonthLabel}의 점검 데이터만 삭제하시겠습니까?`)) {
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    setIsLoading(true);
+
+    try {
+      if (supabase) {
+        // DB에서 해당 월(YYYY-MM-%) 패턴에 맞는 데이터만 삭제
+        const { error } = await supabase
+          .from("events")
+          .delete()
+          .like("start_date", `${deleteMonth}%`);
+
+        if (error) {
+          alert(`[DB 삭제 오류]\n내용: ${error.message}`);
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // 화면 상태에서도 선택한 월의 이벤트만 제거
+      setEvents((prev) =>
+        prev.filter((evt) => !evt.start.startsWith(deleteMonth))
+      );
+
+      alert(`${yearMonthLabel} 데이터가 성공적으로 삭제되었습니다.`);
+    } catch (err: any) {
+      console.error("월별 삭제 에러:", err);
+      alert(`삭제 중 오류 발생: ${err.message || err}`);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -336,15 +384,13 @@ export default function Home() {
           });
         }
 
-        // 1. 기존 화면 이벤트에 새로 업로드한 이벤트를 누적(Append)시킵니다.
         setEvents((prev) => [...prev, ...newCalendarEvents]);
 
-        // 2. DB 저장 후 최신 데이터 전체를 다시 불러옵니다.
         const supabase = getSupabaseClient();
         if (supabase && dbRowsToInsert.length > 0) {
           try {
             await supabase.from("events").insert(dbRowsToInsert);
-            await fetchEvents(); // DB 전체 목록 재동기화
+            await fetchEvents();
           } catch (e) {
             console.error("DB 동기화 에러:", e);
           }
@@ -528,10 +574,11 @@ export default function Home() {
               현장점검 일정 캘린더
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              
+              현장점검 엑셀 파일(.xlsx)을 등록하면 아래 달력에 일정이
+              누적되어 표시됩니다.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={fetchEvents}
               disabled={isLoading}
@@ -543,15 +590,44 @@ export default function Home() {
                 className={isLoading ? "animate-spin" : ""}
               />
             </button>
+
+            {/* 특정 월 선택 삭제 영역 */}
+            <div className="flex items-center border border-slate-300 rounded-xl overflow-hidden bg-slate-50">
+              <select
+                value={deleteMonth}
+                onChange={(e) => setDeleteMonth(e.target.value)}
+                className="bg-transparent px-2.5 py-2 text-xs font-semibold text-slate-700 outline-none"
+              >
+                <option value="2026-05">2026년 5월</option>
+                <option value="2026-06">2026년 6월</option>
+                <option value="2026-07">2026년 7월</option>
+                <option value="2026-08">2026년 8월</option>
+                <option value="2026-09">2026년 9월</option>
+                <option value="2026-10">2026년 10월</option>
+                <option value="2026-11">2026년 11월</option>
+                <option value="2026-12">2026년 12월</option>
+              </select>
+              <button
+                onClick={handleDeleteSpecificMonth}
+                disabled={isLoading}
+                className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 text-xs font-semibold transition flex items-center gap-1"
+                title="선택 월 삭제"
+              >
+                <Trash2 size={14} />
+                월 삭제
+              </button>
+            </div>
+
             <button
               onClick={handleClearDatabase}
               disabled={isLoading}
-              className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 px-3.5 py-2.5 rounded-xl font-medium text-sm transition"
+              className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 px-3 py-2.5 rounded-xl font-medium text-xs transition"
               title="전체 일정 초기화"
             >
-              <Trash2 size={16} />
+              <Trash2 size={14} />
               전체 비우기
             </button>
+
             <input
               type="file"
               accept=".xlsx, .xls"
@@ -562,10 +638,10 @@ export default function Home() {
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={isLoading}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium text-sm transition shadow-sm disabled:bg-slate-400"
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl font-medium text-xs transition shadow-sm disabled:bg-slate-400"
             >
-              <Upload size={16} />
-              {isLoading ? "데이터 처리 중..." : "엑셀 파일 선택"}
+              <Upload size={14} />
+              {isLoading ? "처리 중..." : "엑셀 파일 선택"}
             </button>
           </div>
         </div>
