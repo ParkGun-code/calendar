@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import interactionPlugin from '@fullcalendar/interaction';
-import { Phone, MapPin, Filter, PhoneCall, Edit3, Save, FileText, CheckCircle2, Navigation, Copy, Check, Calendar as CalendarIcon, FilePenLine } from 'lucide-react';
+import { Phone, MapPin, Filter, PhoneCall, Edit3, Save, FileText, CheckCircle2, Navigation, Copy, Check, Calendar as CalendarIcon } from 'lucide-react';
 
 const GROUP_COLORS = {
   '1조': { bg: '#3B82F6', text: '#ffffff' },
@@ -19,7 +19,7 @@ export default function FieldInspectionCalendar({ initialData = [] }) {
   const [masterData, setMasterData] = useState([]);
   const [copied, setCopied] = useState(false);
   
-  // 편집 모드 상태 및 입력폼 상태 (check_date 추가)
+  // 편집 모드 상태 및 입력폼 상태
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
     check_date: '',
@@ -30,7 +30,7 @@ export default function FieldInspectionCalendar({ initialData = [] }) {
     memo: ''
   });
 
-  // 💡 [추가] 현장 확인서 작성 모드 상태
+  // 현장 확인서 작성 모드 상태
   const [isWritingInspection, setIsWritingInspection] = useState(false);
   const [inspectionForm, setInspectionForm] = useState({
     violation_content: '',
@@ -84,11 +84,10 @@ export default function FieldInspectionCalendar({ initialData = [] }) {
       memo: data.memo || ''
     });
     setIsEditing(false);
-    setIsWritingInspection(false); // 모달 열 때 확인서 작성 폼은 닫힘 상태로 초기화
+    setIsWritingInspection(false);
     setCopied(false);
   };
 
-  // 정보 수정 및 일정 변경 저장 처리
   const handleSaveInfo = () => {
     if (!selectedEvent) return;
 
@@ -118,14 +117,12 @@ export default function FieldInspectionCalendar({ initialData = [] }) {
     }));
     setIsEditing(false);
 
-    // 변경된 일자의 달력 화면으로 자동 이동
     if (isDateModified && calendarRef.current && editForm.check_date) {
       const calendarApi = calendarRef.current.getApi();
       calendarApi.gotoDate(editForm.check_date);
     }
   };
 
-  // 💡 [추가] 현장 확인서 제출 핸들러 (Supabase 연동 또는 상태 저장)
   const handleSaveInspection = (e) => {
     e.preventDefault();
     if (!inspectionForm.inspector_name || !inspectionForm.violation_content) {
@@ -133,7 +130,6 @@ export default function FieldInspectionCalendar({ initialData = [] }) {
       return;
     }
 
-    // 여기에 Supabase 연동 코드 (insert 등)를 추가하거나 부모 컴포넌트로 전달 가능
     alert(`[${selectedEvent.project_name}] 현장 확인서가 성공적으로 저장되었습니다!`);
     setIsWritingInspection(false);
     setInspectionForm({ violation_content: '', inspector_name: '' });
@@ -264,24 +260,24 @@ export default function FieldInspectionCalendar({ initialData = [] }) {
               {selectedEvent.project_name}
             </h2>
 
-            {/* 💡 [추가] 모달 내 상단 전환 탭: 상세정보 vs 현장 확인서 작성 */}
-            <div className="flex gap-2 mb-4 border-b pb-3">
+            {/* 💡 [명확한 탭 버튼] 일정 상세 vs 현장 확인서 작성 */}
+            <div className="grid grid-cols-2 gap-2 mb-4 p-1 bg-slate-100 rounded-xl">
               <button
                 onClick={() => setIsWritingInspection(false)}
-                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${!isWritingInspection ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                className={`py-2 text-xs font-bold rounded-lg transition-all ${!isWritingInspection ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
               >
                 📋 일정 상세 및 메모
               </button>
               <button
                 onClick={() => { setIsWritingInspection(true); setIsEditing(false); }}
-                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 ${isWritingInspection ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
+                className={`py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${isWritingInspection ? 'bg-blue-600 text-white shadow-sm' : 'text-blue-600 hover:bg-blue-50'}`}
               >
-                <FilePenLine className="w-4 h-4" />
-                현장 확인서 작성
+                <FileText className="w-4 h-4" />
+                현장 확인서 작성하기
               </button>
             </div>
 
-            {/* 💡 [추가] 현장 확인서 작성 폼 영역 */}
+            {/* 💡 현장 확인서 작성 폼 영역 */}
             {isWritingInspection ? (
               <form onSubmit={handleSaveInspection} className="space-y-4 bg-blue-50/40 p-4 rounded-xl border border-blue-100">
                 <div className="bg-white p-3 rounded-lg border border-blue-200 text-xs space-y-1">
@@ -325,7 +321,7 @@ export default function FieldInspectionCalendar({ initialData = [] }) {
               /* 기존 상세정보 및 수정 영역 */
               <div className="space-y-4 text-sm text-slate-600 mt-2">
                 
-                {/* 1. 점검 예정일 (날짜 변경 기능 추가) */}
+                {/* 1. 점검 예정일 */}
                 <div className="bg-amber-50/70 p-3 rounded-xl border border-amber-200/80">
                   <div className="flex items-center gap-2">
                     <CalendarIcon className="w-4 h-4 text-amber-700 shrink-0" />
