@@ -667,9 +667,11 @@ export default function FieldInspectionCalendar({ initialData = [] }) {
                       네이버 지도
                     </a>
 
-                    {/* 티맵 (Tmap) - 앱 딥링크 연결 */}
+                    {/* 티맵 (Tmap) - 모바일/PC 통합 웹 연동 */}
                     <a
-                      href={`tmap://search?name=${encodeURIComponent(selectedEvent.site_address)}`}
+                      href={`https://m.tmap.co.kr/search.do?keyword=${encodeURIComponent(selectedEvent.site_address)}`}
+                      target="_blank"
+                      rel="noreferrer"
                       className="flex items-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg hover:bg-blue-100 transition"
                     >
                       <Navigation size={11} />
