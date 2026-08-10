@@ -897,6 +897,7 @@ export default function Home() {
                   </div>
                 </div>
 
+                {/* 현장사무실 주소 및 3대 네비게이션 선택 버튼 */}
                 {selectedEvent.extendedProps.address && (
                   <div className="flex items-start gap-3">
                     <MapPin
@@ -904,25 +905,58 @@ export default function Home() {
                       size={18}
                     />
                     <div className="w-full">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-slate-400 block">
-                          현장사무실 주소
+                      <span className="text-xs font-semibold text-slate-400 block">
+                        현장사무실 주소
+                      </span>
+                      <span className="text-slate-700 block mt-0.5 mb-2 font-medium">
+                        {selectedEvent.extendedProps.address}
+                      </span>
+
+                      {/* 네비게이션 연결 배지 버튼 3종 */}
+                      <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100">
+                        <span className="text-[11px] font-semibold text-slate-400 mr-1">
+                          길안내:
                         </span>
+                        
+                        {/* 카카오맵 */}
                         <a
                           href={`https://map.kakao.com/link/search/${encodeURIComponent(
                             selectedEvent.extendedProps.address
                           )}`}
                           target="_blank"
                           rel="noreferrer"
-                          className="flex items-center gap-1 text-[11px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded hover:bg-blue-100 transition"
+                          className="flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg hover:bg-amber-100 transition"
                         >
-                          <Navigation size={12} />
-                          카카오맵 네비
+                          <Navigation size={11} />
+                          카카오맵
+                        </a>
+
+                        {/* 네이버 지도 */}
+                        <a
+                          href={`https://map.naver.com/v5/search/${encodeURIComponent(
+                            selectedEvent.extendedProps.address
+                          )}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg hover:bg-emerald-100 transition"
+                        >
+                          <Navigation size={11} />
+                          네이버 지도
+                        </a>
+
+                        {/* 티맵 (Tmap) */}
+                        <a
+                          href={`https://m.tmap.co.kr/search?name=${encodeURIComponent(
+                            selectedEvent.extendedProps.address
+                          )}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg hover:bg-blue-100 transition"
+                        >
+                          <Navigation size={11} />
+                          티맵 (Tmap)
                         </a>
                       </div>
-                      <span className="text-slate-700 block mt-1">
-                        {selectedEvent.extendedProps.address}
-                      </span>
                     </div>
                   </div>
                 )}
