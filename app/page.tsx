@@ -748,10 +748,10 @@ export default function Home() {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-800">
-              현장점검 및 회의/심의 일정 캘린더
+              건설안전과 일정 캘린더
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              현장점검뿐만 아니라 결과회의, 검토회의, 벌점심의위원회 및 공휴일 정보를 제공합니다.
+              현장점검, 결과회의, 검토회의, 벌점심의위원회 및 공휴일 정보 제공
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
