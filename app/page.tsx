@@ -21,7 +21,6 @@ import {
   Edit2,
   Check,
   PlusCircle,
-  Clock,
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -61,20 +60,21 @@ interface CalendarEvent {
     progressStatus: string;
     team: string;
     checkDate: string;
-    eventType: string; // 'inspection' | 'meeting' | 'committee' | 'other'
+    eventType: string;
   };
 }
 
-// 은은하고 모던한 파스텔톤 컬러 팔레트
+// 실제 업무 체계에 맞춘 전용 컬러 팔레트
 const TEAM_COLORS: Record<string, string> = {
-  "1조": "#60A5FA",   // 파스텔 블루
-  "2조": "#34D399",   // 파스텔 민트
-  "3조": "#FBBF24",   // 파스텔 앰버
-  "TF1조": "#A78BFA", // 파스텔 퍼플
-  "TF2조": "#F472B6", // 파스텔 핑크
-  "벌점심의위원회": "#EF4444", // 인텐스 레드
-  "내부검토회의": "#8B5CF6",   // 딥 퍼플
-  "기타일정": "#64748B",       // 슬레이트 그레이
+  "1조": "#60A5FA",          // 파스텔 블루
+  "2조": "#34D399",          // 파스텔 민트
+  "3조": "#FBBF24",          // 파스텔 앰버
+  "TF1조": "#A78BFA",        // 파스텔 퍼플
+  "TF2조": "#F472B6",        // 파스텔 핑크
+  "현장점검 결과회의": "#10B981",  // 에메랄드 그린
+  "의견제출 검토회의": "#6366F1",  // 인디고 블루
+  "벌점심의위원회": "#EF4444",    // 인텐스 레드
+  "기타일정": "#64748B",          // 슬레이트 그레이
 };
 
 const parseCheckDate = (val: any): string => {
@@ -155,7 +155,7 @@ export default function Home() {
   // 새 일정 직접 추가 모달
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addForm, setAddForm] = useState({
-    category: "벌점심의위원회",
+    category: "현장점검 결과회의",
     title: "",
     date: new Date().toISOString().split("T")[0],
     address: "",
@@ -297,13 +297,13 @@ export default function Home() {
 
     setIsAddModalOpen(false);
     setAddForm({
-      category: "벌점심의위원회",
+      category: "현장점검 결과회의",
       title: "",
       date: new Date().toISOString().split("T")[0],
       address: "",
       notes: "",
     });
-    alert("새 일정이 성공적으로 추가되었습니다!");
+    alert("새 회의/일정이 성공적으로 추가되었습니다!");
   };
 
   const handleClearDatabase = async () => {
@@ -623,7 +623,7 @@ export default function Home() {
         <div className="bg-white p-8 rounded-2xl shadow-lg max-w-md w-full border border-slate-200">
           <div className="text-center mb-6">
             <h1 className="text-xl font-bold text-slate-800">
-              현장점검 및 부서 일정 캘린더
+              현장점검 및 회의/심의 일정 캘린더
             </h1>
             <p className="text-xs text-slate-500 mt-1">
               접근 권한이 필요합니다. 아이디와 비밀번호를 입력하세요.
@@ -679,10 +679,10 @@ export default function Home() {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-800">
-              현장점검 및 부서 일정 캘린더
+              현장점검 및 회의/심의 일정 캘린더
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              엑셀 등록뿐만 아니라 회의, 심의위원회 등 부서 추가 일정을 자유롭게 관리하세요.
+              현장점검뿐만 아니라 결과회의, 검토회의, 벌점심의위원회 등 업무 일정을 총괄 관리합니다.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -692,7 +692,7 @@ export default function Home() {
               className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2.5 rounded-xl font-semibold text-xs transition shadow-sm"
             >
               <PlusCircle size={15} />
-              일정 직접 추가
+              회의/일정 직접 추가
             </button>
 
             <button
@@ -771,7 +771,7 @@ export default function Home() {
             <select
               value={selectedTeam}
               onChange={(e) => setSelectedTeam(e.target.value)}
-              className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-500"
+              className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-500 font-medium"
             >
               <option value="all">전체 보기</option>
               <option value="1조">1조 (현장점검)</option>
@@ -779,8 +779,9 @@ export default function Home() {
               <option value="3조">3조 (현장점검)</option>
               <option value="TF1조">TF1조 (현장점검)</option>
               <option value="TF2조">TF2조 (현장점검)</option>
+              <option value="현장점검 결과회의">현장점검 결과회의</option>
+              <option value="의견제출 검토회의">의견제출 검토회의</option>
               <option value="벌점심의위원회">벌점심의위원회</option>
-              <option value="내부검토회의">내부검토회의</option>
               <option value="기타일정">기타일정</option>
             </select>
           </div>
@@ -815,14 +816,14 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 새 일정 직접 추가 팝업 모달 */}
+      {/* 회의 및 일정 직접 추가 팝업 모달 */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
             <div className="flex items-center justify-between border-b pb-3">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                 <PlusCircle className="text-emerald-600" size={20} />
-                새 일정 직접 추가
+                회의 및 업무 일정 추가
               </h3>
               <button
                 onClick={() => setIsAddModalOpen(false)}
@@ -835,17 +836,18 @@ export default function Home() {
             <form onSubmit={handleAddCustomEvent} className="space-y-3 text-xs">
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">
-                  일정 구분
+                  회의 / 일정 구분 *
                 </label>
                 <select
                   value={addForm.category}
                   onChange={(e) =>
                     setAddForm({ ...addForm, category: e.target.value })
                   }
-                  className="w-full border p-2.5 rounded-lg text-slate-800"
+                  className="w-full border p-2.5 rounded-lg text-slate-800 font-semibold"
                 >
+                  <option value="현장점검 결과회의">현장점검 결과회의</option>
+                  <option value="의견제출 검토회의">의견제출 검토회의</option>
                   <option value="벌점심의위원회">벌점심의위원회</option>
-                  <option value="내부검토회의">내부검토회의</option>
                   <option value="기타일정">기타일정</option>
                   <option value="1조">1조 현장점검</option>
                   <option value="2조">2조 현장점검</option>
@@ -855,11 +857,11 @@ export default function Home() {
 
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">
-                  일정명 / 회의 제목 *
+                  회의 안건 / 일정 제목 *
                 </label>
                 <input
                   type="text"
-                  placeholder="예: 2026년 제3차 벌점심의위원회 개최"
+                  placeholder="예: 2026년 8월 현장점검 결과 총괄 검토회의"
                   value={addForm.title}
                   onChange={(e) =>
                     setAddForm({ ...addForm, title: e.target.value })
@@ -871,7 +873,7 @@ export default function Home() {
 
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">
-                  일정 날짜 *
+                  개최 날짜 *
                 </label>
                 <input
                   type="date"
@@ -886,11 +888,11 @@ export default function Home() {
 
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">
-                  장소 / 회의실
+                  회의 장소 / 회의실
                 </label>
                 <input
                   type="text"
-                  placeholder="예: 대회의실 / 세종청사 3동 201호"
+                  placeholder="예: 중회의실 / 세종청사 3동 201호"
                   value={addForm.address}
                   onChange={(e) =>
                     setAddForm({ ...addForm, address: e.target.value })
@@ -901,11 +903,11 @@ export default function Home() {
 
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">
-                  주요 안건 / 비고 메모
+                  주요 안건 및 참석 대상 / 비고
                 </label>
                 <textarea
                   rows={3}
-                  placeholder="회의 안건, 참석 대상자, 준비사항 등 메모"
+                  placeholder="주요 검토 대상 현장, 참석 위원, 준비 서류 등 메모"
                   value={addForm.notes}
                   onChange={(e) =>
                     setAddForm({ ...addForm, notes: e.target.value })
@@ -975,22 +977,23 @@ export default function Home() {
                     onChange={(e) =>
                       setEditForm({ ...editForm, team: e.target.value })
                     }
-                    className="w-full border p-2 rounded-lg"
+                    className="w-full border p-2 rounded-lg font-semibold"
                   >
                     <option value="1조">1조</option>
                     <option value="2조">2조</option>
                     <option value="3조">3조</option>
                     <option value="TF1조">TF1조</option>
                     <option value="TF2조">TF2조</option>
+                    <option value="현장점검 결과회의">현장점검 결과회의</option>
+                    <option value="의견제출 검토회의">의견제출 검토회의</option>
                     <option value="벌점심의위원회">벌점심의위원회</option>
-                    <option value="내부검토회의">내부검토회의</option>
                     <option value="기타일정">기타일정</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="font-semibold text-slate-600 block mb-1">
-                    일정명
+                    일정명 / 회의 제목
                   </label>
                   <input
                     type="text"
@@ -1004,7 +1007,7 @@ export default function Home() {
 
                 <div>
                   <label className="font-semibold text-slate-600 block mb-1">
-                    일정 날짜
+                    개최 날짜
                   </label>
                   <input
                     type="date"
@@ -1056,7 +1059,7 @@ export default function Home() {
                   />
                   <div>
                     <span className="text-xs font-semibold text-slate-400 block">
-                      일정명
+                      일정명 / 회의 제목
                     </span>
                     <span className="font-bold text-slate-800 text-base">
                       {selectedEvent.extendedProps.projectName}
