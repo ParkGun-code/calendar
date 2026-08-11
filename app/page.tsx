@@ -20,6 +20,8 @@ import {
   Navigation,
   Edit2,
   Check,
+  PlusCircle,
+  Clock,
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -59,6 +61,7 @@ interface CalendarEvent {
     progressStatus: string;
     team: string;
     checkDate: string;
+    eventType: string; // 'inspection' | 'meeting' | 'committee' | 'other'
   };
 }
 
@@ -69,6 +72,9 @@ const TEAM_COLORS: Record<string, string> = {
   "3조": "#FBBF24",   // 파스텔 앰버
   "TF1조": "#A78BFA", // 파스텔 퍼플
   "TF2조": "#F472B6", // 파스텔 핑크
+  "벌점심의위원회": "#EF4444", // 인텐스 레드
+  "내부검토회의": "#8B5CF6",   // 딥 퍼플
+  "기타일정": "#64748B",       // 슬레이트 그레이
 };
 
 const parseCheckDate = (val: any): string => {
@@ -141,11 +147,20 @@ export default function Home() {
   const [deleteMonth, setDeleteMonth] = useState<string>("2026-05");
   const [isLoading, setIsLoading] = useState(false);
 
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(
-    null
-  );
+  // 일정 상세보기 / 수정 모달
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
+
+  // 새 일정 직접 추가 모달
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [addForm, setAddForm] = useState({
+    category: "벌점심의위원회",
+    title: "",
+    date: new Date().toISOString().split("T")[0],
+    address: "",
+    notes: "",
+  });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -160,11 +175,11 @@ export default function Home() {
 
       if (data && data.length > 0) {
         const dbEvents: CalendarEvent[] = data.map((item: any) => {
-          const team = item.team || "1조";
-          const color = TEAM_COLORS[team] || "#60A5FA";
+          const category = item.category || item.team || "1조";
+          const color = TEAM_COLORS[category] || TEAM_COLORS[item.team] || "#60A5FA";
           return {
             id: String(item.id),
-            title: item.title || "현장점검",
+            title: item.title || "일정",
             start: item.start_date,
             backgroundColor: color,
             borderColor: color,
@@ -183,8 +198,9 @@ export default function Home() {
               agentPhone: item.agent_phone || "",
               agentEmail: item.agent_email || "",
               progressStatus: item.notes || "",
-              team,
+              team: item.team || "일반",
               checkDate: item.start_date || "",
+              eventType: item.order_type || "meeting",
             },
           };
         });
@@ -213,6 +229,81 @@ export default function Home() {
     } else {
       setLoginError("아이디 또는 비밀번호가 올바르지 않습니다.");
     }
+  };
+
+  // 직접 일정 추가 함수
+  const handleAddCustomEvent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!addForm.title || !addForm.date) {
+      alert("일정명과 날짜를 입력해 주세요.");
+      return;
+    }
+
+    const color = TEAM_COLORS[addForm.category] || "#64748B";
+    const title = `[${addForm.category}] ${addForm.title}`;
+
+    const newEventItem: CalendarEvent = {
+      id: String(Date.now()),
+      title,
+      start: addForm.date,
+      backgroundColor: color,
+      borderColor: color,
+      extendedProps: {
+        seq: "",
+        orderType: "custom",
+        category: addForm.category,
+        client: "",
+        projectName: addForm.title,
+        address: addForm.address,
+        startDate: addForm.date,
+        endDate: addForm.date,
+        builder: "",
+        supervisor: "",
+        agentName: "",
+        agentPhone: "",
+        agentEmail: "",
+        progressStatus: addForm.notes,
+        team: addForm.category,
+        checkDate: addForm.date,
+        eventType: "custom",
+      },
+    };
+
+    setEvents((prev) => [...prev, newEventItem]);
+
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        await supabase.from("events").insert([
+          {
+            title,
+            start_date: addForm.date,
+            end_date: null,
+            bg_color: color,
+            border_color: color,
+            team: addForm.category,
+            category: addForm.category,
+            location: addForm.title,
+            address: addForm.address,
+            notes: addForm.notes,
+            order_type: "custom",
+          },
+        ]);
+        await fetchEvents();
+      } catch (err) {
+        console.error("DB 저장 에러:", err);
+      }
+    }
+
+    setIsAddModalOpen(false);
+    setAddForm({
+      category: "벌점심의위원회",
+      title: "",
+      date: new Date().toISOString().split("T")[0],
+      address: "",
+      notes: "",
+    });
+    alert("새 일정이 성공적으로 추가되었습니다!");
   };
 
   const handleClearDatabase = async () => {
@@ -273,6 +364,24 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleDeleteSingleEvent = async () => {
+    if (!selectedEvent) return;
+    if (!confirm("해당 일정을 삭제하시겠습니까?")) return;
+
+    const supabase = getSupabaseClient();
+    if (supabase && !isNaN(Number(selectedEvent.id))) {
+      try {
+        await supabase.from("events").delete().eq("id", Number(selectedEvent.id));
+      } catch (e) {
+        console.error("삭제 실패:", e);
+      }
+    }
+
+    setEvents((prev) => prev.filter((e) => e.id !== selectedEvent.id));
+    setSelectedEvent(null);
+    alert("일정이 삭제되었습니다.");
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -356,6 +465,7 @@ export default function Home() {
               progressStatus,
               team,
               checkDate,
+              eventType: "inspection",
             },
           };
 
@@ -397,9 +507,7 @@ export default function Home() {
           }
         }
 
-        alert(
-          `총 ${newCalendarEvents.length}건의 일정이 기존 달력에 추가되었습니다!`
-        );
+        alert(`총 ${newCalendarEvents.length}건의 일정이 추가되었습니다!`);
       } catch (err: any) {
         console.error("엑셀 파싱 오류:", err);
         alert(`엑셀 처리 오류: ${err.message || err}`);
@@ -439,6 +547,7 @@ export default function Home() {
         progressStatus: props.progressStatus || "",
         team: props.team || "1조",
         checkDate: evt.startStr || "",
+        eventType: props.eventType || "inspection",
       },
     };
 
@@ -452,9 +561,7 @@ export default function Home() {
 
     const updatedTeam = editForm.team || "1조";
     const updatedColor = TEAM_COLORS[updatedTeam] || "#60A5FA";
-    const updatedTitle = `${updatedTeam} - ${
-      editForm.projectName || "현장점검"
-    }`;
+    const updatedTitle = `[${updatedTeam}] ${editForm.projectName || "일정"}`;
 
     const updatedEvent: CalendarEvent = {
       ...selectedEvent,
@@ -516,7 +623,7 @@ export default function Home() {
         <div className="bg-white p-8 rounded-2xl shadow-lg max-w-md w-full border border-slate-200">
           <div className="text-center mb-6">
             <h1 className="text-xl font-bold text-slate-800">
-              현장점검 일정 캘린더
+              현장점검 및 부서 일정 캘린더
             </h1>
             <p className="text-xs text-slate-500 mt-1">
               접근 권한이 필요합니다. 아이디와 비밀번호를 입력하세요.
@@ -572,14 +679,22 @@ export default function Home() {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-800">
-              현장점검 일정 캘린더
+              현장점검 및 부서 일정 캘린더
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              현장점검 엑셀 파일(.xlsx)을 등록하면 아래 달력에 일정이
-              누적되어 표시됩니다.
+              엑셀 등록뿐만 아니라 회의, 심의위원회 등 부서 추가 일정을 자유롭게 관리하세요.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {/* 새 일정 직접 추가 버튼 */}
+            <button
+              onClick={() => setIsAddModalOpen(true)}
+              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2.5 rounded-xl font-semibold text-xs transition shadow-sm"
+            >
+              <PlusCircle size={15} />
+              일정 직접 추가
+            </button>
+
             <button
               onClick={fetchEvents}
               disabled={isLoading}
@@ -651,7 +766,7 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <Filter size={18} className="text-slate-500" />
             <span className="text-sm font-semibold text-slate-700">
-              조별 필터:
+              구분 필터:
             </span>
             <select
               value={selectedTeam}
@@ -659,11 +774,14 @@ export default function Home() {
               className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-500"
             >
               <option value="all">전체 보기</option>
-              <option value="1조">1조</option>
-              <option value="2조">2조</option>
-              <option value="3조">3조</option>
-              <option value="TF1조">TF1조</option>
-              <option value="TF2조">TF2조</option>
+              <option value="1조">1조 (현장점검)</option>
+              <option value="2조">2조 (현장점검)</option>
+              <option value="3조">3조 (현장점검)</option>
+              <option value="TF1조">TF1조 (현장점검)</option>
+              <option value="TF2조">TF2조 (현장점검)</option>
+              <option value="벌점심의위원회">벌점심의위원회</option>
+              <option value="내부검토회의">내부검토회의</option>
+              <option value="기타일정">기타일정</option>
             </select>
           </div>
 
@@ -697,6 +815,125 @@ export default function Home() {
         </div>
       </div>
 
+      {/* 새 일정 직접 추가 팝업 모달 */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between border-b pb-3">
+              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <PlusCircle className="text-emerald-600" size={20} />
+                새 일정 직접 추가
+              </h3>
+              <button
+                onClick={() => setIsAddModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddCustomEvent} className="space-y-3 text-xs">
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">
+                  일정 구분
+                </label>
+                <select
+                  value={addForm.category}
+                  onChange={(e) =>
+                    setAddForm({ ...addForm, category: e.target.value })
+                  }
+                  className="w-full border p-2.5 rounded-lg text-slate-800"
+                >
+                  <option value="벌점심의위원회">벌점심의위원회</option>
+                  <option value="내부검토회의">내부검토회의</option>
+                  <option value="기타일정">기타일정</option>
+                  <option value="1조">1조 현장점검</option>
+                  <option value="2조">2조 현장점검</option>
+                  <option value="3조">3조 현장점검</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">
+                  일정명 / 회의 제목 *
+                </label>
+                <input
+                  type="text"
+                  placeholder="예: 2026년 제3차 벌점심의위원회 개최"
+                  value={addForm.title}
+                  onChange={(e) =>
+                    setAddForm({ ...addForm, title: e.target.value })
+                  }
+                  className="w-full border p-2.5 rounded-lg"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">
+                  일정 날짜 *
+                </label>
+                <input
+                  type="date"
+                  value={addForm.date}
+                  onChange={(e) =>
+                    setAddForm({ ...addForm, date: e.target.value })
+                  }
+                  className="w-full border p-2.5 rounded-lg"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">
+                  장소 / 회의실
+                </label>
+                <input
+                  type="text"
+                  placeholder="예: 대회의실 / 세종청사 3동 201호"
+                  value={addForm.address}
+                  onChange={(e) =>
+                    setAddForm({ ...addForm, address: e.target.value })
+                  }
+                  className="w-full border p-2.5 rounded-lg"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">
+                  주요 안건 / 비고 메모
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="회의 안건, 참석 대상자, 준비사항 등 메모"
+                  value={addForm.notes}
+                  onChange={(e) =>
+                    setAddForm({ ...addForm, notes: e.target.value })
+                  }
+                  className="w-full border p-2.5 rounded-lg"
+                />
+              </div>
+
+              <div className="pt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddModalOpen(false)}
+                  className="w-1/2 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl"
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  className="w-1/2 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl shadow"
+                >
+                  등록하기
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* 상세보기 / 수정하기 모달 팝업 */}
       {selectedEvent && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -713,7 +950,7 @@ export default function Home() {
                   {editForm.team || selectedEvent.extendedProps.team}
                 </span>
                 <h3 className="text-lg font-bold text-slate-800">
-                  {isEditing ? "현장점검 정보 수정" : "현장점검 상세정보"}
+                  {isEditing ? "일정 정보 수정" : "일정 상세정보"}
                 </h3>
               </div>
               <button
@@ -731,7 +968,7 @@ export default function Home() {
               <div className="space-y-4 text-xs">
                 <div>
                   <label className="font-semibold text-slate-600 block mb-1">
-                    현장점검 담당조
+                    일정 구분
                   </label>
                   <select
                     value={editForm.team}
@@ -745,12 +982,15 @@ export default function Home() {
                     <option value="3조">3조</option>
                     <option value="TF1조">TF1조</option>
                     <option value="TF2조">TF2조</option>
+                    <option value="벌점심의위원회">벌점심의위원회</option>
+                    <option value="내부검토회의">내부검토회의</option>
+                    <option value="기타일정">기타일정</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="font-semibold text-slate-600 block mb-1">
-                    공사명
+                    일정명
                   </label>
                   <input
                     type="text"
@@ -764,7 +1004,7 @@ export default function Home() {
 
                 <div>
                   <label className="font-semibold text-slate-600 block mb-1">
-                    현장점검 예정일
+                    일정 날짜
                   </label>
                   <input
                     type="date"
@@ -778,7 +1018,7 @@ export default function Home() {
 
                 <div>
                   <label className="font-semibold text-slate-600 block mb-1">
-                    현장사무실 주소
+                    장소 / 주소
                   </label>
                   <input
                     type="text"
@@ -790,67 +1030,9 @@ export default function Home() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="font-semibold text-slate-600 block mb-1">
-                      시공사
-                    </label>
-                    <input
-                      type="text"
-                      value={editForm.builder}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, builder: e.target.value })
-                      }
-                      className="w-full border p-2 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="font-semibold text-slate-600 block mb-1">
-                      감리사
-                    </label>
-                    <input
-                      type="text"
-                      value={editForm.supervisor}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, supervisor: e.target.value })
-                      }
-                      className="w-full border p-2 rounded-lg"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="font-semibold text-slate-600 block mb-1">
-                      현장대리인 성명
-                    </label>
-                    <input
-                      type="text"
-                      value={editForm.agentName}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, agentName: e.target.value })
-                      }
-                      className="w-full border p-2 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="font-semibold text-slate-600 block mb-1">
-                      현장대리인 전화번호
-                    </label>
-                    <input
-                      type="text"
-                      value={editForm.agentPhone}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, agentPhone: e.target.value })
-                      }
-                      className="w-full border p-2 rounded-lg"
-                    />
-                  </div>
-                </div>
-
                 <div>
                   <label className="font-semibold text-slate-600 block mb-1">
-                    공사진행상태 / 비고
+                    주요 안건 / 비고 메모
                   </label>
                   <textarea
                     rows={3}
@@ -874,7 +1056,7 @@ export default function Home() {
                   />
                   <div>
                     <span className="text-xs font-semibold text-slate-400 block">
-                      공사명
+                      일정명
                     </span>
                     <span className="font-bold text-slate-800 text-base">
                       {selectedEvent.extendedProps.projectName}
@@ -889,7 +1071,7 @@ export default function Home() {
                   />
                   <div>
                     <span className="text-xs font-semibold text-slate-400 block">
-                      현장점검 예정일
+                      일정 날짜
                     </span>
                     <span className="font-bold text-emerald-600">
                       {selectedEvent.start}
@@ -897,7 +1079,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* 현장사무실 주소 및 길안내 (카카오맵 / 네이버 지도 전용) */}
                 {selectedEvent.extendedProps.address && (
                   <div className="flex items-start gap-3">
                     <MapPin
@@ -906,19 +1087,17 @@ export default function Home() {
                     />
                     <div className="w-full">
                       <span className="text-xs font-semibold text-slate-400 block">
-                        현장사무실 주소
+                        장소 / 주소
                       </span>
                       <span className="text-slate-700 block mt-0.5 mb-2 font-medium">
                         {selectedEvent.extendedProps.address}
                       </span>
 
-                      {/* 네비게이션 연결 배지 (티맵 제거됨) */}
                       <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100">
                         <span className="text-[11px] font-semibold text-slate-400 mr-1">
                           길안내:
                         </span>
                         
-                        {/* 카카오맵 */}
                         <a
                           href={`https://map.kakao.com/link/search/${encodeURIComponent(
                             selectedEvent.extendedProps.address
@@ -931,7 +1110,6 @@ export default function Home() {
                           카카오맵
                         </a>
 
-                        {/* 네이버 지도 */}
                         <a
                           href={`https://map.naver.com/v5/search/${encodeURIComponent(
                             selectedEvent.extendedProps.address
@@ -978,7 +1156,7 @@ export default function Home() {
                   selectedEvent.extendedProps.agentPhone) && (
                   <div className="space-y-1.5 bg-blue-50/60 p-3 rounded-xl border border-blue-100">
                     <span className="text-[11px] font-bold text-blue-700 block">
-                      현장대리인 정보
+                      담당자 / 연락처
                     </span>
                     <div className="flex items-center gap-4 text-xs text-slate-700">
                       {selectedEvent.extendedProps.agentName && (
@@ -1012,7 +1190,7 @@ export default function Home() {
                     />
                     <div className="w-full">
                       <span className="text-xs font-semibold text-slate-400 block">
-                        공사진행상태 (비고)
+                        주요 안건 / 비고 메모
                       </span>
                       <p className="text-slate-700 whitespace-pre-wrap bg-slate-50 p-3 rounded-lg border border-slate-200 mt-1 text-xs leading-relaxed">
                         {selectedEvent.extendedProps.progressStatus}
@@ -1042,13 +1220,22 @@ export default function Home() {
                 </>
               ) : (
                 <>
-                  <button
-                    onClick={() => setIsEditing(true)}
-                    className="flex items-center gap-1.5 text-blue-600 hover:text-blue-700 bg-blue-50 px-3 py-1.5 rounded-lg text-xs font-semibold transition"
-                  >
-                    <Edit2 size={14} />
-                    수정하기
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setIsEditing(true)}
+                      className="flex items-center gap-1.5 text-blue-600 hover:text-blue-700 bg-blue-50 px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                    >
+                      <Edit2 size={14} />
+                      수정하기
+                    </button>
+                    <button
+                      onClick={handleDeleteSingleEvent}
+                      className="flex items-center gap-1 text-rose-600 hover:text-rose-700 bg-rose-50 px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                    >
+                      <Trash2 size={14} />
+                      삭제
+                    </button>
+                  </div>
                   <button
                     onClick={() => setSelectedEvent(null)}
                     className="bg-slate-800 hover:bg-slate-900 text-white text-xs font-medium px-4 py-2 rounded-lg transition"
