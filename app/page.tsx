@@ -155,7 +155,7 @@ export default function Home() {
   // 새 일정 직접 추가 모달
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addForm, setAddForm] = useState({
-    category: "현장점검 결과회의",
+    category: "기타일정",
     title: "",
     date: new Date().toISOString().split("T")[0],
     address: "",
@@ -198,7 +198,7 @@ export default function Home() {
               agentPhone: item.agent_phone || "",
               agentEmail: item.agent_email || "",
               progressStatus: item.notes || "",
-              team: item.team || "일반",
+              team: item.team || "기타일정",
               checkDate: item.start_date || "",
               eventType: item.order_type || "meeting",
             },
@@ -231,7 +231,7 @@ export default function Home() {
     }
   };
 
-  // 직접 일정 추가 함수
+  // 직접 일정 추가 함수 (기타일정은 사용자 입력 제목 그대로 달력 표시)
   const handleAddCustomEvent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!addForm.title || !addForm.date) {
@@ -240,7 +240,12 @@ export default function Home() {
     }
 
     const color = TEAM_COLORS[addForm.category] || "#64748B";
-    const title = `[${addForm.category}] ${addForm.title}`;
+    
+    // 기타일정인 경우 입력한 제목 그대로, 그 외 범주는 [범주명] 제목 형식
+    const title =
+      addForm.category === "기타일정"
+        ? addForm.title
+        : `[${addForm.category}] ${addForm.title}`;
 
     const newEventItem: CalendarEvent = {
       id: String(Date.now()),
@@ -297,13 +302,13 @@ export default function Home() {
 
     setIsAddModalOpen(false);
     setAddForm({
-      category: "현장점검 결과회의",
+      category: "기타일정",
       title: "",
       date: new Date().toISOString().split("T")[0],
       address: "",
       notes: "",
     });
-    alert("새 회의/일정이 성공적으로 추가되었습니다!");
+    alert("새 일정이 성공적으로 추가되었습니다!");
   };
 
   const handleClearDatabase = async () => {
@@ -545,7 +550,7 @@ export default function Home() {
         agentPhone: props.agentPhone || "",
         agentEmail: props.agentEmail || "",
         progressStatus: props.progressStatus || "",
-        team: props.team || "1조",
+        team: props.team || "기타일정",
         checkDate: evt.startStr || "",
         eventType: props.eventType || "inspection",
       },
@@ -559,9 +564,13 @@ export default function Home() {
   const handleSaveEdit = async () => {
     if (!selectedEvent) return;
 
-    const updatedTeam = editForm.team || "1조";
-    const updatedColor = TEAM_COLORS[updatedTeam] || "#60A5FA";
-    const updatedTitle = `[${updatedTeam}] ${editForm.projectName || "일정"}`;
+    const updatedTeam = editForm.team || "기타일정";
+    const updatedColor = TEAM_COLORS[updatedTeam] || "#64748B";
+    
+    const updatedTitle =
+      updatedTeam === "기타일정"
+        ? editForm.projectName
+        : `[${updatedTeam}] ${editForm.projectName || "일정"}`;
 
     const updatedEvent: CalendarEvent = {
       ...selectedEvent,
@@ -593,6 +602,7 @@ export default function Home() {
               bg_color: updatedColor,
               border_color: updatedColor,
               team: updatedTeam,
+              category: updatedTeam,
               location: editForm.projectName,
               address: editForm.address,
               members: editForm.builder,
@@ -686,7 +696,6 @@ export default function Home() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {/* 새 일정 직접 추가 버튼 */}
             <button
               onClick={() => setIsAddModalOpen(true)}
               className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2.5 rounded-xl font-semibold text-xs transition shadow-sm"
@@ -707,7 +716,6 @@ export default function Home() {
               />
             </button>
 
-            {/* 특정 월 선택 삭제 영역 */}
             <div className="flex items-center border border-slate-300 rounded-xl overflow-hidden bg-slate-50">
               <select
                 value={deleteMonth}
@@ -816,7 +824,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 회의 및 일정 직접 추가 팝업 모달 */}
+      {/* 회의 및 기타일정 추가 팝업 모달 */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
@@ -845,10 +853,10 @@ export default function Home() {
                   }
                   className="w-full border p-2.5 rounded-lg text-slate-800 font-semibold"
                 >
+                  <option value="기타일정">기타일정 (입력한 제목 그대로 달력 표시)</option>
                   <option value="현장점검 결과회의">현장점검 결과회의</option>
                   <option value="의견제출 검토회의">의견제출 검토회의</option>
                   <option value="벌점심의위원회">벌점심의위원회</option>
-                  <option value="기타일정">기타일정</option>
                   <option value="1조">1조 현장점검</option>
                   <option value="2조">2조 현장점검</option>
                   <option value="3조">3조 현장점검</option>
@@ -857,11 +865,15 @@ export default function Home() {
 
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">
-                  회의 안건 / 일정 제목 *
+                  {addForm.category === "기타일정" ? "일정 제목 *" : "회의 안건 / 일정 제목 *"}
                 </label>
                 <input
                   type="text"
-                  placeholder="예: 2026년 8월 현장점검 결과 총괄 검토회의"
+                  placeholder={
+                    addForm.category === "기타일정"
+                      ? "예: 부서 워크숍 / 대전 출장"
+                      : "예: 2026년 8월 현장점검 결과 총괄 검토회의"
+                  }
                   value={addForm.title}
                   onChange={(e) =>
                     setAddForm({ ...addForm, title: e.target.value })
@@ -888,7 +900,7 @@ export default function Home() {
 
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">
-                  회의 장소 / 회의실
+                  회의 장소 / 장소
                 </label>
                 <input
                   type="text"
@@ -903,11 +915,11 @@ export default function Home() {
 
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">
-                  주요 안건 및 참석 대상 / 비고
+                  주요 안건 및 비고 메모
                 </label>
                 <textarea
                   rows={3}
-                  placeholder="주요 검토 대상 현장, 참석 위원, 준비 서류 등 메모"
+                  placeholder="주요 내용 및 준비사항 메모"
                   value={addForm.notes}
                   onChange={(e) =>
                     setAddForm({ ...addForm, notes: e.target.value })
@@ -979,6 +991,7 @@ export default function Home() {
                     }
                     className="w-full border p-2 rounded-lg font-semibold"
                   >
+                    <option value="기타일정">기타일정</option>
                     <option value="1조">1조</option>
                     <option value="2조">2조</option>
                     <option value="3조">3조</option>
@@ -987,7 +1000,6 @@ export default function Home() {
                     <option value="현장점검 결과회의">현장점검 결과회의</option>
                     <option value="의견제출 검토회의">의견제출 검토회의</option>
                     <option value="벌점심의위원회">벌점심의위원회</option>
-                    <option value="기타일정">기타일정</option>
                   </select>
                 </div>
 
