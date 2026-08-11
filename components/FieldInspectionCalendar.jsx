@@ -537,7 +537,7 @@ export default function FieldInspectionCalendar({ initialData = [] }) {
         />
       </div>
 
-      {/* 상세정보 & 수정 & 네비 연동 & 일정변경 모달 */}
+      {/* 상세정보 & 수정 & 길안내 2종 연동 & 일정변경 모달 */}
       {selectedEvent && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center p-0 md:p-4">
           <div className="bg-white w-full md:max-w-lg rounded-t-2xl md:rounded-2xl p-6 shadow-xl max-h-[85vh] overflow-y-auto">
