@@ -64,11 +64,11 @@ interface CalendarEvent {
 
 // 은은하고 모던한 파스텔톤 컬러 팔레트
 const TEAM_COLORS: Record<string, string> = {
-  "1조": "#60A5FA",   // 소프트 파스텔 블루
-  "2조": "#34D399",   // 파스텔 민트/세이지
-  "3조": "#FBBF24",   // 웜 파스텔 앰버/옐로우
-  "TF1조": "#A78BFA", // 소프트 라벤더/퍼플
-  "TF2조": "#F472B6", // 파스텔 피치/핑크
+  "1조": "#60A5FA",   // 파스텔 블루
+  "2조": "#34D399",   // 파스텔 민트
+  "3조": "#FBBF24",   // 파스텔 앰버
+  "TF1조": "#A78BFA", // 파스텔 퍼플
+  "TF2조": "#F472B6", // 파스텔 핑크
 };
 
 const parseCheckDate = (val: any): string => {
@@ -897,7 +897,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* 현장사무실 주소 및 3대 네비게이션 선택 버튼 */}
+                {/* 현장사무실 주소 및 길안내 (카카오맵 / 네이버 지도 전용) */}
                 {selectedEvent.extendedProps.address && (
                   <div className="flex items-start gap-3">
                     <MapPin
@@ -912,7 +912,7 @@ export default function Home() {
                         {selectedEvent.extendedProps.address}
                       </span>
 
-                      {/* 네비게이션 연결 배지 버튼 3종 */}
+                      {/* 네비게이션 연결 배지 (티맵 제거됨) */}
                       <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100">
                         <span className="text-[11px] font-semibold text-slate-400 mr-1">
                           길안내:
@@ -925,7 +925,7 @@ export default function Home() {
                           )}`}
                           target="_blank"
                           rel="noreferrer"
-                          className="flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg hover:bg-amber-100 transition"
+                          className="flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg hover:bg-amber-100 transition"
                         >
                           <Navigation size={11} />
                           카카오맵
@@ -938,23 +938,10 @@ export default function Home() {
                           )}`}
                           target="_blank"
                           rel="noreferrer"
-                          className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg hover:bg-emerald-100 transition"
+                          className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg hover:bg-emerald-100 transition"
                         >
                           <Navigation size={11} />
                           네이버 지도
-                        </a>
-
-                        {/* 티맵 (Tmap) */}
-                        <a
-                          href={`https://m.tmap.co.kr/search?name=${encodeURIComponent(
-                            selectedEvent.extendedProps.address
-                          )}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg hover:bg-blue-100 transition"
-                        >
-                          <Navigation size={11} />
-                          티맵 (Tmap)
                         </a>
                       </div>
                     </div>
