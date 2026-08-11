@@ -537,7 +537,7 @@ export default function FieldInspectionCalendar({ initialData = [] }) {
         />
       </div>
 
-      {/* 상세정보 & 수정 & 3대 네비 & 일정변경 모달 */}
+      {/* 상세정보 & 수정 & 네비 연동 & 일정변경 모달 */}
       {selectedEvent && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center p-0 md:p-4">
           <div className="bg-white w-full md:max-w-lg rounded-t-2xl md:rounded-2xl p-6 shadow-xl max-h-[85vh] overflow-y-auto">
@@ -620,7 +620,7 @@ export default function FieldInspectionCalendar({ initialData = [] }) {
                 </div>
               </div>
 
-              {/* 2. 현장 위치 및 3대 네비 연동 */}
+              {/* 2. 현장 위치 및 네비 연동 (카카오맵 / 네이버 지도) */}
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                 <div className="flex items-start gap-2 mb-2">
                   <MapPin className="w-4 h-4 text-rose-500 mt-0.5 shrink-0" />
@@ -642,7 +642,7 @@ export default function FieldInspectionCalendar({ initialData = [] }) {
                 </div>
 
                 {!isEditing && selectedEvent.site_address && (
-                  <div className="flex flex-wrap gap-1.5 mt-3 pt-2 border-t border-slate-200">
+                  <div className="flex flex-wrap items-center gap-1.5 mt-3 pt-2 border-t border-slate-200">
                     <span className="text-[11px] font-semibold text-slate-400 mr-1 self-center">길안내:</span>
                     
                     {/* 카카오맵 */}
@@ -650,7 +650,7 @@ export default function FieldInspectionCalendar({ initialData = [] }) {
                       href={`https://map.kakao.com/link/search/${encodeURIComponent(selectedEvent.site_address)}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg hover:bg-amber-100 transition"
+                      className="flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg hover:bg-amber-100 transition"
                     >
                       <Navigation size={11} />
                       카카오맵
@@ -661,21 +661,10 @@ export default function FieldInspectionCalendar({ initialData = [] }) {
                       href={`https://map.naver.com/v5/search/${encodeURIComponent(selectedEvent.site_address)}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg hover:bg-emerald-100 transition"
+                      className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg hover:bg-emerald-100 transition"
                     >
                       <Navigation size={11} />
                       네이버 지도
-                    </a>
-
-                    {/* 티맵 (Tmap) - 모바일/PC 통합 웹 연동 */}
-                    <a
-                      href={`https://m.tmap.co.kr/search.do?keyword=${encodeURIComponent(selectedEvent.site_address)}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg hover:bg-blue-100 transition"
-                    >
-                      <Navigation size={11} />
-                      티맵 (Tmap)
                     </a>
 
                     {/* 주소 복사 */}
