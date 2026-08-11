@@ -692,7 +692,7 @@ export default function Home() {
         <div className="bg-white p-8 rounded-2xl shadow-lg max-w-md w-full border border-slate-200">
           <div className="text-center mb-6">
             <h1 className="text-xl font-bold text-slate-800">
-              현장점검 및 회의/심의 일정 캘린더
+              건설안전과 일정 캘린더
             </h1>
             <p className="text-xs text-slate-500 mt-1">
               접근 권한이 필요합니다. 아이디와 비밀번호를 입력하세요.
