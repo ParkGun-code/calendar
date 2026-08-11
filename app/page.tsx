@@ -64,7 +64,7 @@ interface CalendarEvent {
   };
 }
 
-// 실제 업무 체계에 맞춘 전용 컬러 팔레트
+// 실제 업무 체계 및 공휴일 전용 컬러 팔레트
 const TEAM_COLORS: Record<string, string> = {
   "1조": "#60A5FA",          // 파스텔 블루
   "2조": "#34D399",          // 파스텔 민트
@@ -75,7 +75,31 @@ const TEAM_COLORS: Record<string, string> = {
   "의견제출 검토회의": "#6366F1",  // 인디고 블루
   "벌점심의위원회": "#EF4444",    // 인텐스 레드
   "기타일정": "#64748B",          // 슬레이트 그레이
+  "공휴일": "#F87171",            // 소프트 레드 (공휴일)
 };
+
+// 2026년 대한민국 주요 법정공휴일 데이터
+const KOREAN_HOLIDAYS_2026 = [
+  { date: "2026-01-01", title: "신정" },
+  { date: "2026-02-16", title: "설날 연휴" },
+  { date: "2026-02-17", title: "설날" },
+  { date: "2026-02-18", title: "설날 연휴" },
+  { date: "2026-03-01", title: "삼일절" },
+  { date: "2026-03-02", title: "대체공휴일(삼일절)" },
+  { date: "2026-05-05", title: "어린이날" },
+  { date: "2026-05-24", title: "부처님오신날" },
+  { date: "2026-05-25", title: "대체공휴일(부처님오신날)" },
+  { date: "2026-06-06", title: "현충일" },
+  { date: "2026-08-15", title: "광복절" },
+  { date: "2026-08-17", title: "대체공휴일(광복절)" },
+  { date: "2026-09-24", title: "추석 연휴" },
+  { date: "2026-09-25", title: "추석" },
+  { date: "2026-09-26", title: "추석 연휴" },
+  { date: "2026-10-03", title: "개천절" },
+  { date: "2026-10-05", title: "대체공휴일(개천절)" },
+  { date: "2026-10-09", title: "한글날" },
+  { date: "2026-12-25", title: "성탄절" },
+];
 
 const parseCheckDate = (val: any): string => {
   if (!val) return "";
@@ -166,7 +190,39 @@ export default function Home() {
 
   const fetchEvents = async () => {
     const supabase = getSupabaseClient();
-    if (!supabase) return;
+
+    // 공휴일 이벤트를 기본 배열로 구성
+    const holidayEvents: CalendarEvent[] = KOREAN_HOLIDAYS_2026.map((h, i) => ({
+      id: `holiday-${i}`,
+      title: `${h.title}`,
+      start: h.date,
+      backgroundColor: TEAM_COLORS["공휴일"],
+      borderColor: TEAM_COLORS["공휴일"],
+      extendedProps: {
+        seq: "",
+        orderType: "holiday",
+        category: "공휴일",
+        client: "",
+        projectName: h.title,
+        address: "",
+        startDate: h.date,
+        endDate: h.date,
+        builder: "",
+        supervisor: "",
+        agentName: "",
+        agentPhone: "",
+        agentEmail: "",
+        progressStatus: "대한민국 법정공휴일",
+        team: "공휴일",
+        checkDate: h.date,
+        eventType: "holiday",
+      },
+    }));
+
+    if (!supabase) {
+      setEvents(holidayEvents);
+      return;
+    }
 
     setIsLoading(true);
     try {
@@ -204,12 +260,13 @@ export default function Home() {
             },
           };
         });
-        setEvents(dbEvents);
+        setEvents([...holidayEvents, ...dbEvents]);
       } else {
-        setEvents([]);
+        setEvents(holidayEvents);
       }
     } catch (err: any) {
       console.error("DB 로딩 에러:", err);
+      setEvents(holidayEvents);
     } finally {
       setIsLoading(false);
     }
@@ -231,7 +288,6 @@ export default function Home() {
     }
   };
 
-  // 직접 일정 추가 함수 (기타일정은 사용자 입력 제목 그대로 달력 표시)
   const handleAddCustomEvent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!addForm.title || !addForm.date) {
@@ -240,8 +296,6 @@ export default function Home() {
     }
 
     const color = TEAM_COLORS[addForm.category] || "#64748B";
-    
-    // 기타일정인 경우 입력한 제목 그대로, 그 외 범주는 [범주명] 제목 형식
     const title =
       addForm.category === "기타일정"
         ? addForm.title
@@ -313,7 +367,7 @@ export default function Home() {
 
   const handleClearDatabase = async () => {
     const supabase = getSupabaseClient();
-    if (!confirm("정말로 등록된 전체 일정을 삭제하시겠습니까?")) return;
+    if (!confirm("정말로 등록된 전체 일정을 삭제하시겠습니까? (공휴일은 유지됩니다)")) return;
 
     if (supabase) {
       setIsLoading(true);
@@ -326,8 +380,8 @@ export default function Home() {
       }
     }
 
-    setEvents([]);
-    alert("모든 일정이 초기화되었습니다.");
+    fetchEvents();
+    alert("모든 업무 일정이 초기화되었습니다.");
   };
 
   const handleDeleteSpecificMonth = async () => {
@@ -358,10 +412,7 @@ export default function Home() {
         }
       }
 
-      setEvents((prev) =>
-        prev.filter((evt) => !evt.start.startsWith(deleteMonth))
-      );
-
+      await fetchEvents();
       alert(`${yearMonthLabel} 데이터가 성공적으로 삭제되었습니다.`);
     } catch (err: any) {
       console.error("월별 삭제 에러:", err);
@@ -373,6 +424,10 @@ export default function Home() {
 
   const handleDeleteSingleEvent = async () => {
     if (!selectedEvent) return;
+    if (selectedEvent.extendedProps.eventType === "holiday") {
+      alert("공휴일 데이터는 삭제할 수 없습니다.");
+      return;
+    }
     if (!confirm("해당 일정을 삭제하시겠습니까?")) return;
 
     const supabase = getSupabaseClient();
@@ -625,7 +680,11 @@ export default function Home() {
   const filteredEvents =
     selectedTeam === "all"
       ? events
-      : events.filter((evt) => evt.extendedProps.team === selectedTeam);
+      : events.filter(
+          (evt) =>
+            evt.extendedProps.team === selectedTeam ||
+            evt.extendedProps.eventType === "holiday" // 공휴일은 상시 표시
+        );
 
   if (!isAuthenticated) {
     return (
@@ -692,7 +751,7 @@ export default function Home() {
               현장점검 및 회의/심의 일정 캘린더
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              현장점검뿐만 아니라 결과회의, 검토회의, 벌점심의위원회 등 업무 일정을 총괄 관리합니다.
+              현장점검뿐만 아니라 결과회의, 검토회의, 벌점심의위원회 및 공휴일 정보를 제공합니다.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -964,7 +1023,11 @@ export default function Home() {
                   {editForm.team || selectedEvent.extendedProps.team}
                 </span>
                 <h3 className="text-lg font-bold text-slate-800">
-                  {isEditing ? "일정 정보 수정" : "일정 상세정보"}
+                  {selectedEvent.extendedProps.eventType === "holiday"
+                    ? "공휴일 정보"
+                    : isEditing
+                    ? "일정 정보 수정"
+                    : "일정 상세정보"}
                 </h3>
               </div>
               <button
@@ -1071,7 +1134,7 @@ export default function Home() {
                   />
                   <div>
                     <span className="text-xs font-semibold text-slate-400 block">
-                      일정명 / 회의 제목
+                      일정명 / 명칭
                     </span>
                     <span className="font-bold text-slate-800 text-base">
                       {selectedEvent.extendedProps.projectName}
@@ -1086,7 +1149,7 @@ export default function Home() {
                   />
                   <div>
                     <span className="text-xs font-semibold text-slate-400 block">
-                      일정 날짜
+                      날짜
                     </span>
                     <span className="font-bold text-emerald-600">
                       {selectedEvent.start}
@@ -1205,7 +1268,7 @@ export default function Home() {
                     />
                     <div className="w-full">
                       <span className="text-xs font-semibold text-slate-400 block">
-                        주요 안건 / 비고 메모
+                        주요 내용 / 비고 메모
                       </span>
                       <p className="text-slate-700 whitespace-pre-wrap bg-slate-50 p-3 rounded-lg border border-slate-200 mt-1 text-xs leading-relaxed">
                         {selectedEvent.extendedProps.progressStatus}
@@ -1217,7 +1280,14 @@ export default function Home() {
             )}
 
             <div className="pt-2 flex justify-between items-center border-t">
-              {isEditing ? (
+              {selectedEvent.extendedProps.eventType === "holiday" ? (
+                <button
+                  onClick={() => setSelectedEvent(null)}
+                  className="w-full bg-slate-800 hover:bg-slate-900 text-white text-xs font-medium py-2 rounded-lg transition"
+                >
+                  닫기
+                </button>
+              ) : isEditing ? (
                 <>
                   <button
                     onClick={() => setIsEditing(false)}
