@@ -22,7 +22,6 @@ import {
   Check,
   PlusCircle,
   AlertTriangle,
-  DollarSign,
   BarChart3,
   Search,
 } from "lucide-react";
@@ -83,30 +82,7 @@ const TEAM_COLORS: Record<string, string> = {
   "의견제출 검토회의": "#6366F1",  // 인디고 블루
   "벌점심의위원회": "#EF4444",    // 인텐스 레드
   "기타일정": "#64748B",          // 슬레이트 그레이
-  "공휴일": "#F87171",            // 소프트 레드
 };
-
-const KOREAN_HOLIDAYS_2026 = [
-  { date: "2026-01-01", title: "신정" },
-  { date: "2026-02-16", title: "설날 연휴" },
-  { date: "2026-02-17", title: "설날" },
-  { date: "2026-02-18", title: "설날 연휴" },
-  { date: "2026-03-01", title: "삼일절" },
-  { date: "2026-03-02", title: "대체공휴일(삼일절)" },
-  { date: "2026-05-05", title: "어린이날" },
-  { date: "2026-05-24", title: "부처님오신날" },
-  { date: "2026-05-25", title: "대체공휴일(부처님오신날)" },
-  { date: "2026-06-06", title: "현충일" },
-  { date: "2026-08-15", title: "광복절" },
-  { date: "2026-08-17", title: "대체공휴일(광복절)" },
-  { date: "2026-09-24", title: "추석 연휴" },
-  { date: "2026-09-25", title: "추석" },
-  { date: "2026-09-26", title: "추석 연휴" },
-  { date: "2026-10-03", title: "개천절" },
-  { date: "2026-10-05", title: "대체공휴일(개천절)" },
-  { date: "2026-10-09", title: "한글날" },
-  { date: "2026-12-25", title: "성탄절" },
-];
 
 const parseCheckDate = (val: any): string => {
   if (!val) return "";
@@ -198,51 +174,17 @@ export default function Home() {
     penaltyReason: "",
   });
 
-  // 벌점/과태료 통계 모달
+  // 벌점/과태료 통계 모달 & 기간별 필터
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
+  const [statsYearFilter, setStatsYearFilter] = useState("all");
+  const [statsMonthFilter, setStatsMonthFilter] = useState("all");
   const [statsSearchQuery, setStatsSearchQuery] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchEvents = async () => {
     const supabase = getSupabaseClient();
-
-    const holidayEvents: CalendarEvent[] = KOREAN_HOLIDAYS_2026.map((h, i) => ({
-      id: `holiday-${i}`,
-      title: `${h.title}`,
-      start: h.date,
-      backgroundColor: TEAM_COLORS["공휴일"],
-      borderColor: TEAM_COLORS["공휴일"],
-      extendedProps: {
-        seq: "",
-        orderType: "holiday",
-        category: "공휴일",
-        client: "",
-        projectName: h.title,
-        address: "",
-        startDate: h.date,
-        endDate: h.date,
-        builder: "",
-        supervisor: "",
-        agentName: "",
-        agentPhone: "",
-        agentEmail: "",
-        progressStatus: "대한민국 법정공휴일",
-        team: "공휴일",
-        checkDate: h.date,
-        eventType: "holiday",
-        hasDemerit: false,
-        demeritScore: "",
-        hasFine: false,
-        fineAmount: "",
-        penaltyReason: "",
-      },
-    }));
-
-    if (!supabase) {
-      setEvents(holidayEvents);
-      return;
-    }
+    if (!supabase) return;
 
     setIsLoading(true);
     try {
@@ -290,13 +232,12 @@ export default function Home() {
             },
           };
         });
-        setEvents([...holidayEvents, ...dbEvents]);
+        setEvents(dbEvents);
       } else {
-        setEvents(holidayEvents);
+        setEvents([]);
       }
     } catch (err: any) {
       console.error("DB 로딩 에러:", err);
-      setEvents(holidayEvents);
     } finally {
       setIsLoading(false);
     }
@@ -415,7 +356,7 @@ export default function Home() {
 
   const handleClearDatabase = async () => {
     const supabase = getSupabaseClient();
-    if (!confirm("정말로 등록된 전체 일정을 삭제하시겠습니까? (공휴일은 유지됩니다)")) return;
+    if (!confirm("정말로 등록된 전체 일정을 삭제하시겠습니까?")) return;
 
     if (supabase) {
       setIsLoading(true);
@@ -428,7 +369,7 @@ export default function Home() {
       }
     }
 
-    fetchEvents();
+    setEvents([]);
     alert("모든 업무 일정이 초기화되었습니다.");
   };
 
@@ -472,10 +413,6 @@ export default function Home() {
 
   const handleDeleteSingleEvent = async () => {
     if (!selectedEvent) return;
-    if (selectedEvent.extendedProps.eventType === "holiday") {
-      alert("공휴일 데이터는 삭제할 수 없습니다.");
-      return;
-    }
     if (!confirm("해당 일정을 삭제하시겠습니까?")) return;
 
     const supabase = getSupabaseClient();
@@ -748,12 +685,22 @@ export default function Home() {
     alert("수정사항이 저장되었습니다.");
   };
 
-  // 통계용 처분 현장 목록 계산
+  // 전체 처분 대상 목록
   const penaltyEvents = events.filter(
     (e) => e.extendedProps.hasDemerit || e.extendedProps.hasFine
   );
 
-  const filteredPenaltyEvents = penaltyEvents.filter((e) => {
+  // 기간 필터링이 적용된 처분 대상 목록
+  const periodFilteredPenaltyEvents = penaltyEvents.filter((e) => {
+    if (!e.start) return false;
+    const [y, m] = e.start.split("-");
+    if (statsYearFilter !== "all" && y !== statsYearFilter) return false;
+    if (statsMonthFilter !== "all" && m !== statsMonthFilter) return false;
+    return true;
+  });
+
+  // 검색어가 적용된 최종 목록
+  const finalTableEvents = periodFilteredPenaltyEvents.filter((e) => {
     const q = statsSearchQuery.toLowerCase();
     return (
       e.extendedProps.projectName.toLowerCase().includes(q) ||
@@ -762,22 +709,19 @@ export default function Home() {
     );
   });
 
-  const totalDemeritScore = penaltyEvents
-    .reduce((acc, curr) => acc + (parseFloat(curr.extendedProps.demeritScore) || 0), 0)
-    .toFixed(1);
+  // 건수 집계 (벌점 부과 현장 수 / 과태료 부과 현장 수)
+  const totalDemeritSitesCount = periodFilteredPenaltyEvents.filter(
+    (e) => e.extendedProps.hasDemerit
+  ).length;
 
-  const totalFineAmount = penaltyEvents
-    .reduce((acc, curr) => acc + (parseFloat(curr.extendedProps.fineAmount) || 0), 0)
-    .toLocaleString();
+  const totalFineSitesCount = periodFilteredPenaltyEvents.filter(
+    (e) => e.extendedProps.hasFine
+  ).length;
 
   const filteredEvents =
     selectedTeam === "all"
       ? events
-      : events.filter(
-          (evt) =>
-            evt.extendedProps.team === selectedTeam ||
-            evt.extendedProps.eventType === "holiday"
-        );
+      : events.filter((evt) => evt.extendedProps.team === selectedTeam);
 
   if (!isAuthenticated) {
     return (
@@ -1002,24 +946,57 @@ export default function Home() {
               </button>
             </div>
 
-            {/* 통계 요약 카드 3종 */}
-            <div className="grid grid-cols-3 gap-3">
-              <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl text-center">
-                <span className="text-xs font-semibold text-rose-600 block">총 처분 현장</span>
-                <span className="text-xl font-bold text-rose-800 mt-1 block">
-                  {penaltyEvents.length} <span className="text-xs font-normal">개소</span>
-                </span>
+            {/* 📅 기간별 필터 (년별 / 월별 선택) */}
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3">
+              <span className="text-xs font-bold text-slate-700">통계 기간 선택:</span>
+              <div className="flex items-center gap-2 text-xs">
+                {/* 연도 선택 */}
+                <select
+                  value={statsYearFilter}
+                  onChange={(e) => setStatsYearFilter(e.target.value)}
+                  className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 font-semibold text-slate-800 outline-none focus:border-rose-500"
+                >
+                  <option value="all">전체 연도</option>
+                  <option value="2025">2025년</option>
+                  <option value="2026">2026년</option>
+                  <option value="2027">2027년</option>
+                </select>
+
+                {/* 월 선택 */}
+                <select
+                  value={statsMonthFilter}
+                  onChange={(e) => setStatsMonthFilter(e.target.value)}
+                  className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 font-semibold text-slate-800 outline-none focus:border-rose-500"
+                >
+                  <option value="all">전체 월</option>
+                  <option value="01">1월</option>
+                  <option value="02">2월</option>
+                  <option value="03">3월</option>
+                  <option value="04">4월</option>
+                  <option value="05">5월</option>
+                  <option value="06">6월</option>
+                  <option value="07">7월</option>
+                  <option value="08">8월</option>
+                  <option value="09">9월</option>
+                  <option value="10">10월</option>
+                  <option value="11">11월</option>
+                  <option value="12">12월</option>
+                </select>
               </div>
-              <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl text-center">
-                <span className="text-xs font-semibold text-amber-700 block">총 누적 벌점</span>
-                <span className="text-xl font-bold text-amber-900 mt-1 block">
-                  {totalDemeritScore} <span className="text-xs font-normal">점</span>
+            </div>
+
+            {/* 통계 요약 카드 2종 (벌점 부과 현장 수 / 과태료 부과 현장 수) */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl text-center">
+                <span className="text-xs font-bold text-rose-700 block">총 벌점 부과 현장</span>
+                <span className="text-2xl font-black text-rose-800 mt-1 block">
+                  {totalDemeritSitesCount} <span className="text-xs font-medium">개소</span>
                 </span>
               </div>
               <div className="bg-purple-50 border border-purple-200 p-4 rounded-xl text-center">
-                <span className="text-xs font-semibold text-purple-700 block">총 과태료 합계</span>
-                <span className="text-xl font-bold text-purple-900 mt-1 block">
-                  {totalFineAmount} <span className="text-xs font-normal">만원</span>
+                <span className="text-xs font-bold text-purple-700 block">총 과태료 부과 현장</span>
+                <span className="text-2xl font-black text-purple-900 mt-1 block">
+                  {totalFineSitesCount} <span className="text-xs font-medium">개소</span>
                 </span>
               </div>
             </div>
@@ -1049,8 +1026,8 @@ export default function Home() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredPenaltyEvents.length > 0 ? (
-                    filteredPenaltyEvents.map((e) => (
+                  {finalTableEvents.length > 0 ? (
+                    finalTableEvents.map((e) => (
                       <tr key={e.id} className="hover:bg-slate-50">
                         <td className="p-2.5 text-slate-500 whitespace-nowrap">{e.start}</td>
                         <td className="p-2.5 font-bold text-slate-800">{e.extendedProps.projectName}</td>
@@ -1076,7 +1053,7 @@ export default function Home() {
                   ) : (
                     <tr>
                       <td colSpan={5} className="p-6 text-center text-slate-400">
-                        등록된 벌점 및 과태료 부과 현장이 없습니다.
+                        해당 기간에 등록된 벌점 및 과태료 부과 현장이 없습니다.
                       </td>
                     </tr>
                   )}
@@ -1310,11 +1287,7 @@ export default function Home() {
                   {editForm.team || selectedEvent.extendedProps.team}
                 </span>
                 <h3 className="text-lg font-bold text-slate-800">
-                  {selectedEvent.extendedProps.eventType === "holiday"
-                    ? "공휴일 정보"
-                    : isEditing
-                    ? "일정 정보 수정"
-                    : "일정 상세정보"}
+                  {isEditing ? "일정 정보 수정" : "일정 상세정보"}
                 </h3>
               </div>
               <button
@@ -1682,14 +1655,7 @@ export default function Home() {
             )}
 
             <div className="pt-2 flex justify-between items-center border-t">
-              {selectedEvent.extendedProps.eventType === "holiday" ? (
-                <button
-                  onClick={() => setSelectedEvent(null)}
-                  className="w-full bg-slate-800 hover:bg-slate-900 text-white text-xs font-medium py-2 rounded-lg transition"
-                >
-                  닫기
-                </button>
-              ) : isEditing ? (
+              {isEditing ? (
                 <>
                   <button
                     onClick={() => setIsEditing(false)}
