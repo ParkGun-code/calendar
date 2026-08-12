@@ -729,7 +729,7 @@ export default function Home() {
         <div className="bg-white p-8 rounded-2xl shadow-lg max-w-md w-full border border-slate-200">
           <div className="text-center mb-6">
             <h1 className="text-xl font-bold text-slate-800">
-              현장점검 및 회의/심의 일정 캘린더
+              건설안전과 일정 캘린더
             </h1>
             <p className="text-xs text-slate-500 mt-1">
               접근 권한이 필요합니다. 아이디와 비밀번호를 입력하세요.
@@ -785,10 +785,10 @@ export default function Home() {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-800">
-              현장점검 및 회의/심의 일정 캘린더
+              건설안전과 일정 캘린더
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              점검 및 회의 일정과 함께 벌점/과태료 부과 현황을 통합 관리합니다.
+              점검 및 회의 일정과 함께 벌점/과태료 부과 현황 통합 관리
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
