@@ -21,6 +21,10 @@ import {
   Edit2,
   Check,
   PlusCircle,
+  AlertTriangle,
+  DollarSign,
+  BarChart3,
+  Search,
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -61,10 +65,14 @@ interface CalendarEvent {
     team: string;
     checkDate: string;
     eventType: string;
+    hasDemerit: boolean;     // 벌점 부과 여부
+    demeritScore: string;     // 벌점 점수
+    hasFine: boolean;        // 과태료 부과 여부
+    fineAmount: string;       // 과태료 금액
+    penaltyReason: string;    // 처분 사유
   };
 }
 
-// 실제 업무 체계 및 공휴일 전용 컬러 팔레트
 const TEAM_COLORS: Record<string, string> = {
   "1조": "#60A5FA",          // 파스텔 블루
   "2조": "#34D399",          // 파스텔 민트
@@ -75,10 +83,9 @@ const TEAM_COLORS: Record<string, string> = {
   "의견제출 검토회의": "#6366F1",  // 인디고 블루
   "벌점심의위원회": "#EF4444",    // 인텐스 레드
   "기타일정": "#64748B",          // 슬레이트 그레이
-  "공휴일": "#F87171",            // 소프트 레드 (공휴일)
+  "공휴일": "#F87171",            // 소프트 레드
 };
 
-// 2026년 대한민국 주요 법정공휴일 데이터
 const KOREAN_HOLIDAYS_2026 = [
   { date: "2026-01-01", title: "신정" },
   { date: "2026-02-16", title: "설날 연휴" },
@@ -171,7 +178,7 @@ export default function Home() {
   const [deleteMonth, setDeleteMonth] = useState<string>("2026-05");
   const [isLoading, setIsLoading] = useState(false);
 
-  // 일정 상세보기 / 수정 모달
+  // 모달 제어
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
@@ -184,14 +191,22 @@ export default function Home() {
     date: new Date().toISOString().split("T")[0],
     address: "",
     notes: "",
+    hasDemerit: false,
+    demeritScore: "",
+    hasFine: false,
+    fineAmount: "",
+    penaltyReason: "",
   });
+
+  // 벌점/과태료 통계 모달
+  const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
+  const [statsSearchQuery, setStatsSearchQuery] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchEvents = async () => {
     const supabase = getSupabaseClient();
 
-    // 공휴일 이벤트를 기본 배열로 구성
     const holidayEvents: CalendarEvent[] = KOREAN_HOLIDAYS_2026.map((h, i) => ({
       id: `holiday-${i}`,
       title: `${h.title}`,
@@ -216,6 +231,11 @@ export default function Home() {
         team: "공휴일",
         checkDate: h.date,
         eventType: "holiday",
+        hasDemerit: false,
+        demeritScore: "",
+        hasFine: false,
+        fineAmount: "",
+        penaltyReason: "",
       },
     }));
 
@@ -233,9 +253,14 @@ export default function Home() {
         const dbEvents: CalendarEvent[] = data.map((item: any) => {
           const category = item.category || item.team || "1조";
           const color = TEAM_COLORS[category] || TEAM_COLORS[item.team] || "#60A5FA";
+          
+          let displayTitle = item.title || "일정";
+          if (item.has_demerit) displayTitle = `⚠️ ${displayTitle}`;
+          if (item.has_fine) displayTitle = `💸 ${displayTitle}`;
+
           return {
             id: String(item.id),
-            title: item.title || "일정",
+            title: displayTitle,
             start: item.start_date,
             backgroundColor: color,
             borderColor: color,
@@ -257,6 +282,11 @@ export default function Home() {
               team: item.team || "기타일정",
               checkDate: item.start_date || "",
               eventType: item.order_type || "meeting",
+              hasDemerit: !!item.has_demerit,
+              demeritScore: item.demerit_score || "",
+              hasFine: !!item.has_fine,
+              fineAmount: item.fine_amount || "",
+              penaltyReason: item.penalty_reason || "",
             },
           };
         });
@@ -296,14 +326,17 @@ export default function Home() {
     }
 
     const color = TEAM_COLORS[addForm.category] || "#64748B";
-    const title =
+    let baseTitle =
       addForm.category === "기타일정"
         ? addForm.title
         : `[${addForm.category}] ${addForm.title}`;
 
+    if (addForm.hasDemerit) baseTitle = `⚠️ ${baseTitle}`;
+    if (addForm.hasFine) baseTitle = `💸 ${baseTitle}`;
+
     const newEventItem: CalendarEvent = {
       id: String(Date.now()),
-      title,
+      title: baseTitle,
       start: addForm.date,
       backgroundColor: color,
       borderColor: color,
@@ -325,6 +358,11 @@ export default function Home() {
         team: addForm.category,
         checkDate: addForm.date,
         eventType: "custom",
+        hasDemerit: addForm.hasDemerit,
+        demeritScore: addForm.demeritScore,
+        hasFine: addForm.hasFine,
+        fineAmount: addForm.fineAmount,
+        penaltyReason: addForm.penaltyReason,
       },
     };
 
@@ -335,7 +373,7 @@ export default function Home() {
       try {
         await supabase.from("events").insert([
           {
-            title,
+            title: baseTitle,
             start_date: addForm.date,
             end_date: null,
             bg_color: color,
@@ -346,6 +384,11 @@ export default function Home() {
             address: addForm.address,
             notes: addForm.notes,
             order_type: "custom",
+            has_demerit: addForm.hasDemerit,
+            demerit_score: addForm.demeritScore,
+            has_fine: addForm.hasFine,
+            fine_amount: addForm.fineAmount,
+            penalty_reason: addForm.penaltyReason,
           },
         ]);
         await fetchEvents();
@@ -361,8 +404,13 @@ export default function Home() {
       date: new Date().toISOString().split("T")[0],
       address: "",
       notes: "",
+      hasDemerit: false,
+      demeritScore: "",
+      hasFine: false,
+      fineAmount: "",
+      penaltyReason: "",
     });
-    alert("새 일정이 성공적으로 추가되었습니다!");
+    alert("새 일정이 추가되었습니다!");
   };
 
   const handleClearDatabase = async () => {
@@ -413,7 +461,7 @@ export default function Home() {
       }
 
       await fetchEvents();
-      alert(`${yearMonthLabel} 데이터가 성공적으로 삭제되었습니다.`);
+      alert(`${yearMonthLabel} 데이터가 삭제되었습니다.`);
     } catch (err: any) {
       console.error("월별 삭제 에러:", err);
       alert(`삭제 중 오류 발생: ${err.message || err}`);
@@ -526,6 +574,11 @@ export default function Home() {
               team,
               checkDate,
               eventType: "inspection",
+              hasDemerit: false,
+              demeritScore: "",
+              hasFine: false,
+              fineAmount: "",
+              penaltyReason: "",
             },
           };
 
@@ -552,6 +605,11 @@ export default function Home() {
             agent_name: agentName,
             agent_phone: agentPhone,
             agent_email: agentEmail,
+            has_demerit: false,
+            demerit_score: "",
+            has_fine: false,
+            fine_amount: "",
+            penalty_reason: "",
           });
         }
 
@@ -608,6 +666,11 @@ export default function Home() {
         team: props.team || "기타일정",
         checkDate: evt.startStr || "",
         eventType: props.eventType || "inspection",
+        hasDemerit: !!props.hasDemerit,
+        demeritScore: props.demeritScore || "",
+        hasFine: !!props.hasFine,
+        fineAmount: props.fineAmount || "",
+        penaltyReason: props.penaltyReason || "",
       },
     };
 
@@ -622,14 +685,17 @@ export default function Home() {
     const updatedTeam = editForm.team || "기타일정";
     const updatedColor = TEAM_COLORS[updatedTeam] || "#64748B";
     
-    const updatedTitle =
+    let baseTitle =
       updatedTeam === "기타일정"
         ? editForm.projectName
         : `[${updatedTeam}] ${editForm.projectName || "일정"}`;
 
+    if (editForm.hasDemerit) baseTitle = `⚠️ ${baseTitle}`;
+    if (editForm.hasFine) baseTitle = `💸 ${baseTitle}`;
+
     const updatedEvent: CalendarEvent = {
       ...selectedEvent,
-      title: updatedTitle,
+      title: baseTitle,
       start: editForm.checkDate,
       backgroundColor: updatedColor,
       borderColor: updatedColor,
@@ -652,7 +718,7 @@ export default function Home() {
           await supabase
             .from("events")
             .update({
-              title: updatedTitle,
+              title: baseTitle,
               start_date: editForm.checkDate,
               bg_color: updatedColor,
               border_color: updatedColor,
@@ -666,6 +732,11 @@ export default function Home() {
               agent_phone: editForm.agentPhone,
               agent_email: editForm.agentEmail,
               notes: editForm.progressStatus,
+              has_demerit: editForm.hasDemerit,
+              demerit_score: editForm.demeritScore,
+              has_fine: editForm.hasFine,
+              fine_amount: editForm.fineAmount,
+              penalty_reason: editForm.penaltyReason,
             })
             .eq("id", Number(selectedEvent.id));
         }
@@ -677,13 +748,35 @@ export default function Home() {
     alert("수정사항이 저장되었습니다.");
   };
 
+  // 통계용 처분 현장 목록 계산
+  const penaltyEvents = events.filter(
+    (e) => e.extendedProps.hasDemerit || e.extendedProps.hasFine
+  );
+
+  const filteredPenaltyEvents = penaltyEvents.filter((e) => {
+    const q = statsSearchQuery.toLowerCase();
+    return (
+      e.extendedProps.projectName.toLowerCase().includes(q) ||
+      e.extendedProps.builder.toLowerCase().includes(q) ||
+      e.extendedProps.penaltyReason.toLowerCase().includes(q)
+    );
+  });
+
+  const totalDemeritScore = penaltyEvents
+    .reduce((acc, curr) => acc + (parseFloat(curr.extendedProps.demeritScore) || 0), 0)
+    .toFixed(1);
+
+  const totalFineAmount = penaltyEvents
+    .reduce((acc, curr) => acc + (parseFloat(curr.extendedProps.fineAmount) || 0), 0)
+    .toLocaleString();
+
   const filteredEvents =
     selectedTeam === "all"
       ? events
       : events.filter(
           (evt) =>
             evt.extendedProps.team === selectedTeam ||
-            evt.extendedProps.eventType === "holiday" // 공휴일은 상시 표시
+            evt.extendedProps.eventType === "holiday"
         );
 
   if (!isAuthenticated) {
@@ -692,7 +785,7 @@ export default function Home() {
         <div className="bg-white p-8 rounded-2xl shadow-lg max-w-md w-full border border-slate-200">
           <div className="text-center mb-6">
             <h1 className="text-xl font-bold text-slate-800">
-              건설안전과 일정 캘린더
+              현장점검 및 회의/심의 일정 캘린더
             </h1>
             <p className="text-xs text-slate-500 mt-1">
               접근 권한이 필요합니다. 아이디와 비밀번호를 입력하세요.
@@ -748,13 +841,22 @@ export default function Home() {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-800">
-              건설안전과 일정 캘린더
+              현장점검 및 회의/심의 일정 캘린더
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              현장점검, 결과회의, 검토회의, 벌점심의위원회 및 공휴일 정보 제공
+              점검 및 회의 일정과 함께 벌점/과태료 부과 현황을 통합 관리합니다.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {/* 벌점/과태료 통계 모달 버튼 */}
+            <button
+              onClick={() => setIsStatsModalOpen(true)}
+              className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white px-3.5 py-2.5 rounded-xl font-semibold text-xs transition shadow-sm"
+            >
+              <BarChart3 size={15} />
+              📊 처분 현황 & 통계
+            </button>
+
             <button
               onClick={() => setIsAddModalOpen(true)}
               className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2.5 rounded-xl font-semibold text-xs transition shadow-sm"
@@ -883,10 +985,119 @@ export default function Home() {
         </div>
       </div>
 
+      {/* 📊 벌점·과태료 부과 현황 통계 대시보드 모달 */}
+      {isStatsModalOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-3">
+              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <BarChart3 className="text-rose-600" size={22} />
+                벌점 & 과태료 부과 현황 통계
+              </h3>
+              <button
+                onClick={() => setIsStatsModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* 통계 요약 카드 3종 */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl text-center">
+                <span className="text-xs font-semibold text-rose-600 block">총 처분 현장</span>
+                <span className="text-xl font-bold text-rose-800 mt-1 block">
+                  {penaltyEvents.length} <span className="text-xs font-normal">개소</span>
+                </span>
+              </div>
+              <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl text-center">
+                <span className="text-xs font-semibold text-amber-700 block">총 누적 벌점</span>
+                <span className="text-xl font-bold text-amber-900 mt-1 block">
+                  {totalDemeritScore} <span className="text-xs font-normal">점</span>
+                </span>
+              </div>
+              <div className="bg-purple-50 border border-purple-200 p-4 rounded-xl text-center">
+                <span className="text-xs font-semibold text-purple-700 block">총 과태료 합계</span>
+                <span className="text-xl font-bold text-purple-900 mt-1 block">
+                  {totalFineAmount} <span className="text-xs font-normal">만원</span>
+                </span>
+              </div>
+            </div>
+
+            {/* 처분 현장 검색바 */}
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-3 text-slate-400" />
+              <input
+                type="text"
+                placeholder="공사명, 시공사, 처분 사유 검색..."
+                value={statsSearchQuery}
+                onChange={(e) => setStatsSearchQuery(e.target.value)}
+                className="w-full border border-slate-300 rounded-xl pl-9 pr-3 py-2 text-xs outline-none focus:border-rose-500"
+              />
+            </div>
+
+            {/* 처분 현장 목록 테이블 */}
+            <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-semibold">
+                  <tr>
+                    <th className="p-2.5">점검일자</th>
+                    <th className="p-2.5">공사명 / 현장</th>
+                    <th className="p-2.5">시공사</th>
+                    <th className="p-2.5 text-center">처분구분</th>
+                    <th className="p-2.5 text-right">벌점/과태료</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredPenaltyEvents.length > 0 ? (
+                    filteredPenaltyEvents.map((e) => (
+                      <tr key={e.id} className="hover:bg-slate-50">
+                        <td className="p-2.5 text-slate-500 whitespace-nowrap">{e.start}</td>
+                        <td className="p-2.5 font-bold text-slate-800">{e.extendedProps.projectName}</td>
+                        <td className="p-2.5 text-slate-600">{e.extendedProps.builder || "-"}</td>
+                        <td className="p-2.5 text-center whitespace-nowrap">
+                          {e.extendedProps.hasDemerit && (
+                            <span className="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded font-bold mr-1">
+                              벌점
+                            </span>
+                          )}
+                          {e.extendedProps.hasFine && (
+                            <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold">
+                              과태료
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-2.5 text-right font-semibold text-rose-600 whitespace-nowrap">
+                          {e.extendedProps.hasDemerit && `${e.extendedProps.demeritScore}점 `}
+                          {e.extendedProps.hasFine && `${e.extendedProps.fineAmount}만원`}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={5} className="p-6 text-center text-slate-400">
+                        등록된 벌점 및 과태료 부과 현장이 없습니다.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <button
+              onClick={() => setIsStatsModalOpen(false)}
+              className="w-full bg-slate-800 hover:bg-slate-900 text-white font-medium py-2.5 rounded-xl text-xs transition"
+            >
+              닫기
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 회의 및 기타일정 추가 팝업 모달 */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b pb-3">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                 <PlusCircle className="text-emerald-600" size={20} />
@@ -912,7 +1123,7 @@ export default function Home() {
                   }
                   className="w-full border p-2.5 rounded-lg text-slate-800 font-semibold"
                 >
-                  <option value="기타일정">기타일정 (입력한 제목 그대로 달력 표시)</option>
+                  <option value="기타일정">기타일정</option>
                   <option value="현장점검 결과회의">현장점검 결과회의</option>
                   <option value="의견제출 검토회의">의견제출 검토회의</option>
                   <option value="벌점심의위원회">벌점심의위원회</option>
@@ -928,11 +1139,7 @@ export default function Home() {
                 </label>
                 <input
                   type="text"
-                  placeholder={
-                    addForm.category === "기타일정"
-                      ? "예: 부서 워크숍 / 대전 출장"
-                      : "예: 2026년 8월 현장점검 결과 총괄 검토회의"
-                  }
+                  placeholder="제목 입력"
                   value={addForm.title}
                   onChange={(e) =>
                     setAddForm({ ...addForm, title: e.target.value })
@@ -963,7 +1170,6 @@ export default function Home() {
                 </label>
                 <input
                   type="text"
-                  placeholder="예: 중회의실 / 세종청사 3동 201호"
                   value={addForm.address}
                   onChange={(e) =>
                     setAddForm({ ...addForm, address: e.target.value })
@@ -972,13 +1178,94 @@ export default function Home() {
                 />
               </div>
 
+              {/* 벌점 / 과태료 처분 설정 영역 */}
+              <div className="bg-rose-50/70 border border-rose-100 p-3 rounded-xl space-y-2">
+                <span className="font-bold text-rose-900 block mb-1">
+                  행정 처분 설정 (선택)
+                </span>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-1.5 font-semibold text-rose-800">
+                    <input
+                      type="checkbox"
+                      checked={addForm.hasDemerit}
+                      onChange={(e) =>
+                        setAddForm({ ...addForm, hasDemerit: e.target.checked })
+                      }
+                      className="rounded text-rose-600 focus:ring-rose-500"
+                    />
+                    벌점 부과
+                  </label>
+                  <label className="flex items-center gap-1.5 font-semibold text-purple-800">
+                    <input
+                      type="checkbox"
+                      checked={addForm.hasFine}
+                      onChange={(e) =>
+                        setAddForm({ ...addForm, hasFine: e.target.checked })
+                      }
+                      className="rounded text-purple-600 focus:ring-purple-500"
+                    />
+                    과태료 부과
+                  </label>
+                </div>
+
+                {addForm.hasDemerit && (
+                  <div>
+                    <label className="font-semibold text-slate-600 block mb-0.5">
+                      벌점 점수 (점)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="예: 1.5"
+                      value={addForm.demeritScore}
+                      onChange={(e) =>
+                        setAddForm({ ...addForm, demeritScore: e.target.value })
+                      }
+                      className="w-full border p-2 rounded-lg bg-white"
+                    />
+                  </div>
+                )}
+
+                {addForm.hasFine && (
+                  <div>
+                    <label className="font-semibold text-slate-600 block mb-0.5">
+                      과태료 금액 (만원)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="예: 300"
+                      value={addForm.fineAmount}
+                      onChange={(e) =>
+                        setAddForm({ ...addForm, fineAmount: e.target.value })
+                      }
+                      className="w-full border p-2 rounded-lg bg-white"
+                    />
+                  </div>
+                )}
+
+                {(addForm.hasDemerit || addForm.hasFine) && (
+                  <div>
+                    <label className="font-semibold text-slate-600 block mb-0.5">
+                      처분 사유 / 지적 내용
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="예: 안전관리비 정산 부적정"
+                      value={addForm.penaltyReason}
+                      onChange={(e) =>
+                        setAddForm({ ...addForm, penaltyReason: e.target.value })
+                      }
+                      className="w-full border p-2 rounded-lg bg-white"
+                    />
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">
                   주요 안건 및 비고 메모
                 </label>
                 <textarea
-                  rows={3}
-                  placeholder="주요 내용 및 준비사항 메모"
+                  rows={2}
                   value={addForm.notes}
                   onChange={(e) =>
                     setAddForm({ ...addForm, notes: e.target.value })
@@ -1108,6 +1395,85 @@ export default function Home() {
                   />
                 </div>
 
+                {/* 벌점 및 과태료 수정 영역 */}
+                <div className="bg-rose-50/70 border border-rose-100 p-3 rounded-xl space-y-2">
+                  <span className="font-bold text-rose-900 block mb-1">
+                    행정 처분 설정
+                  </span>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-1.5 font-semibold text-rose-800">
+                      <input
+                        type="checkbox"
+                        checked={editForm.hasDemerit}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, hasDemerit: e.target.checked })
+                        }
+                        className="rounded text-rose-600 focus:ring-rose-500"
+                      />
+                      벌점 부과
+                    </label>
+                    <label className="flex items-center gap-1.5 font-semibold text-purple-800">
+                      <input
+                        type="checkbox"
+                        checked={editForm.hasFine}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, hasFine: e.target.checked })
+                        }
+                        className="rounded text-purple-600 focus:ring-purple-500"
+                      />
+                      과태료 부과
+                    </label>
+                  </div>
+
+                  {editForm.hasDemerit && (
+                    <div>
+                      <label className="font-semibold text-slate-600 block mb-0.5">
+                        벌점 점수 (점)
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.demeritScore || ""}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, demeritScore: e.target.value })
+                        }
+                        className="w-full border p-2 rounded-lg bg-white"
+                      />
+                    </div>
+                  )}
+
+                  {editForm.hasFine && (
+                    <div>
+                      <label className="font-semibold text-slate-600 block mb-0.5">
+                        과태료 금액 (만원)
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.fineAmount || ""}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, fineAmount: e.target.value })
+                        }
+                        className="w-full border p-2 rounded-lg bg-white"
+                      />
+                    </div>
+                  )}
+
+                  {(editForm.hasDemerit || editForm.hasFine) && (
+                    <div>
+                      <label className="font-semibold text-slate-600 block mb-0.5">
+                        처분 사유 / 지적 내용
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.penaltyReason || ""}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, penaltyReason: e.target.value })
+                        }
+                        className="w-full border p-2 rounded-lg bg-white"
+                      />
+                    </div>
+                  )}
+                </div>
+
                 <div>
                   <label className="font-semibold text-slate-600 block mb-1">
                     주요 안건 / 비고 메모
@@ -1127,6 +1493,31 @@ export default function Home() {
               </div>
             ) : (
               <div className="space-y-4 text-sm">
+                {/* 벌점/과태료 배지 안내 */}
+                {(selectedEvent.extendedProps.hasDemerit ||
+                  selectedEvent.extendedProps.hasFine) && (
+                  <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="text-rose-600 shrink-0" size={18} />
+                      <span className="font-bold text-rose-900 text-xs">
+                        행정 처분 부과 현장
+                      </span>
+                    </div>
+                    <div className="flex gap-1.5 text-xs font-bold">
+                      {selectedEvent.extendedProps.hasDemerit && (
+                        <span className="bg-rose-600 text-white px-2.5 py-0.5 rounded-full">
+                          벌점 {selectedEvent.extendedProps.demeritScore}점
+                        </span>
+                      )}
+                      {selectedEvent.extendedProps.hasFine && (
+                        <span className="bg-purple-600 text-white px-2.5 py-0.5 rounded-full">
+                          과태료 {selectedEvent.extendedProps.fineAmount}만원
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-start gap-3">
                   <Building
                     className="text-blue-500 shrink-0 mt-0.5"
@@ -1156,6 +1547,17 @@ export default function Home() {
                     </span>
                   </div>
                 </div>
+
+                {selectedEvent.extendedProps.penaltyReason && (
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
+                    <span className="font-bold text-slate-700 block mb-1">
+                      처분 사유 / 지적 내용
+                    </span>
+                    <p className="text-rose-700 font-semibold">
+                      {selectedEvent.extendedProps.penaltyReason}
+                    </p>
+                  </div>
+                )}
 
                 {selectedEvent.extendedProps.address && (
                   <div className="flex items-start gap-3">
