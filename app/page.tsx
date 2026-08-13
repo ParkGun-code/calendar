@@ -26,6 +26,8 @@ import {
   Search,
   Scale,
   CheckCircle2,
+  HardHat,
+  ShieldCheck,
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -41,6 +43,20 @@ const getSupabaseClient = () => {
   }
   return null;
 };
+
+interface DemeritProc {
+  item: string;
+  score: string;
+  noticeDate: string;
+  opinionDeadline: string;
+  opinionResult: string; // '미제출' | '불수용' | '수용(종결)'
+  reviewMeetingDate: string;
+  noticeResultDate: string;
+  appealDeadline: string;
+  hasAppealSubmitted: boolean;
+  committeeDate: string;
+  finalResultDate: string;
+}
 
 interface CalendarEvent {
   id: string;
@@ -67,25 +83,22 @@ interface CalendarEvent {
     checkDate: string;
     eventType: string;
     
+    // 과태료
     hasFine: boolean;
     fineAmount: string;
     penaltyReason: string;
 
+    // 벌점 부과 통합 설정
     hasDemerit: boolean;            
-    demeritTarget: string;          
-    demeritItem: string;            
-    demeritScore: string;           
-    demeritNoticeDate: string;      
-    demeritOpinionDeadline: string; 
-    hasOpinionSubmitted: boolean;
-    opinionResult: string;          
-    demeritReviewMeetingDate: string;
-    demeritNoticeResultDate: string;
-    demeritAppealDeadline: string;  
-    hasAppealSubmitted: boolean;    
-    demeritCommitteeDate: string;   
-    demeritFinalResultDate: string; 
+    demeritTarget: string; // '시공사' | '감리사' | '시공사 및 감리사'
 
+    // 시공사 전용 벌점 프로세스
+    builderDemerit: DemeritProc;
+
+    // 감리사 전용 벌점 프로세스
+    supervisorDemerit: DemeritProc;
+
+    // 행정 소송 관리
     hasLawsuit: boolean;            
     lawsuitCourt: string;           
     lawsuitCaseNumber: string;      
@@ -177,6 +190,20 @@ const formatDate = (val: any): string => {
 
 const YEARS_LIST = Array.from({ length: 21 }, (_, i) => String(2010 + i));
 
+const defaultDemeritProc = (): DemeritProc => ({
+  item: "",
+  score: "",
+  noticeDate: "",
+  opinionDeadline: "",
+  opinionResult: "미제출",
+  reviewMeetingDate: "",
+  noticeResultDate: "",
+  appealDeadline: "",
+  hasAppealSubmitted: false,
+  committeeDate: "",
+  finalResultDate: "",
+});
+
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState("");
@@ -204,19 +231,9 @@ export default function Home() {
     penaltyReason: "",
 
     hasDemerit: false,
-    demeritTarget: "시공사",
-    demeritItem: "",
-    demeritScore: "",
-    demeritNoticeDate: "",
-    demeritOpinionDeadline: "",
-    hasOpinionSubmitted: false,
-    opinionResult: "미제출",
-    demeritReviewMeetingDate: "",
-    demeritNoticeResultDate: "",
-    demeritAppealDeadline: "",
-    hasAppealSubmitted: false,
-    demeritCommitteeDate: "",
-    demeritFinalResultDate: "",
+    demeritTarget: "시공사 및 감리사",
+    builderDemerit: defaultDemeritProc(),
+    supervisorDemerit: defaultDemeritProc(),
 
     hasLawsuit: false,
     lawsuitCourt: "",
@@ -293,19 +310,35 @@ export default function Home() {
               penaltyReason: item.penalty_reason || "",
 
               hasDemerit: isDemerit,
-              demeritTarget: item.demerit_target || "시공사",
-              demeritItem: item.demerit_item || "",
-              demeritScore: item.demerit_score || "",
-              demeritNoticeDate: item.demerit_notice_date || "",
-              demeritOpinionDeadline: item.demerit_opinion_deadline || "",
-              hasOpinionSubmitted: !!item.has_opinion_submitted,
-              opinionResult: item.opinion_result || "미제출",
-              demeritReviewMeetingDate: item.demerit_review_meeting_date || "",
-              demeritNoticeResultDate: item.demerit_notice_result_date || "",
-              demeritAppealDeadline: item.demerit_appeal_deadline || "",
-              hasAppealSubmitted: !!item.has_appeal_submitted,
-              demeritCommitteeDate: item.demerit_committee_date || "",
-              demeritFinalResultDate: item.demerit_final_result_date || "",
+              demeritTarget: item.demerit_target || "시공사 및 감리사",
+              
+              builderDemerit: {
+                item: item.builder_demerit_item || item.demerit_item || "",
+                score: item.builder_demerit_score || item.demerit_score || "",
+                noticeDate: item.builder_demerit_notice_date || item.demerit_notice_date || "",
+                opinionDeadline: item.builder_demerit_opinion_deadline || item.demerit_opinion_deadline || "",
+                opinionResult: item.builder_opinion_result || item.opinion_result || "미제출",
+                reviewMeetingDate: item.builder_demerit_review_meeting_date || item.demerit_review_meeting_date || "",
+                noticeResultDate: item.builder_demerit_notice_result_date || item.demerit_notice_result_date || "",
+                appealDeadline: item.builder_demerit_appeal_deadline || item.demerit_appeal_deadline || "",
+                hasAppealSubmitted: !!(item.builder_has_appeal_submitted ?? item.has_appeal_submitted),
+                committeeDate: item.builder_demerit_committee_date || item.demerit_committee_date || "",
+                finalResultDate: item.builder_demerit_final_result_date || item.demerit_final_result_date || "",
+              },
+
+              supervisorDemerit: {
+                item: item.supervisor_demerit_item || "",
+                score: item.supervisor_demerit_score || "",
+                noticeDate: item.supervisor_demerit_notice_date || "",
+                opinionDeadline: item.supervisor_demerit_opinion_deadline || "",
+                opinionResult: item.supervisor_opinion_result || "미제출",
+                reviewMeetingDate: item.supervisor_demerit_review_meeting_date || "",
+                noticeResultDate: item.supervisor_demerit_notice_result_date || "",
+                appealDeadline: item.supervisor_demerit_appeal_deadline || "",
+                hasAppealSubmitted: !!item.supervisor_has_appeal_submitted,
+                committeeDate: item.supervisor_demerit_committee_date || "",
+                finalResultDate: item.supervisor_demerit_final_result_date || "",
+              },
 
               hasLawsuit: isLawsuit,
               lawsuitCourt: item.lawsuit_court || "",
@@ -391,18 +424,8 @@ export default function Home() {
 
         hasDemerit: addForm.hasDemerit,
         demeritTarget: addForm.demeritTarget,
-        demeritItem: addForm.demeritItem,
-        demeritScore: addForm.demeritScore,
-        demeritNoticeDate: addForm.demeritNoticeDate,
-        demeritOpinionDeadline: addForm.demeritOpinionDeadline,
-        hasOpinionSubmitted: addForm.hasOpinionSubmitted,
-        opinionResult: addForm.opinionResult,
-        demeritReviewMeetingDate: addForm.demeritReviewMeetingDate,
-        demeritNoticeResultDate: addForm.demeritNoticeResultDate,
-        demeritAppealDeadline: addForm.demeritAppealDeadline,
-        hasAppealSubmitted: addForm.hasAppealSubmitted,
-        demeritCommitteeDate: addForm.demeritCommitteeDate,
-        demeritFinalResultDate: addForm.demeritFinalResultDate,
+        builderDemerit: addForm.builderDemerit,
+        supervisorDemerit: addForm.supervisorDemerit,
 
         hasLawsuit: addForm.hasLawsuit,
         lawsuitCourt: addForm.lawsuitCourt,
@@ -438,18 +461,32 @@ export default function Home() {
 
             has_demerit: addForm.hasDemerit,
             demerit_target: addForm.demeritTarget,
-            demerit_item: addForm.demeritItem,
-            demerit_score: addForm.demeritScore,
-            demerit_notice_date: addForm.demeritNoticeDate,
-            demerit_opinion_deadline: addForm.demeritOpinionDeadline,
-            has_opinion_submitted: addForm.hasOpinionSubmitted,
-            opinion_result: addForm.opinionResult,
-            demerit_review_meeting_date: addForm.demeritReviewMeetingDate,
-            demerit_notice_result_date: addForm.demeritNoticeResultDate,
-            demerit_appeal_deadline: addForm.demeritAppealDeadline,
-            has_appeal_submitted: addForm.hasAppealSubmitted,
-            demerit_committee_date: addForm.demeritCommitteeDate,
-            demerit_final_result_date: addForm.demeritFinalResultDate,
+
+            // 시공사 분리 저장
+            builder_demerit_item: addForm.builderDemerit.item,
+            builder_demerit_score: addForm.builderDemerit.score,
+            builder_demerit_notice_date: addForm.builderDemerit.noticeDate,
+            builder_demerit_opinion_deadline: addForm.builderDemerit.opinionDeadline,
+            builder_opinion_result: addForm.builderDemerit.opinionResult,
+            builder_demerit_review_meeting_date: addForm.builderDemerit.reviewMeetingDate,
+            builder_demerit_notice_result_date: addForm.builderDemerit.noticeResultDate,
+            builder_demerit_appeal_deadline: addForm.builderDemerit.appealDeadline,
+            builder_has_appeal_submitted: addForm.builderDemerit.hasAppealSubmitted,
+            builder_demerit_committee_date: addForm.builderDemerit.committeeDate,
+            builder_demerit_final_result_date: addForm.builderDemerit.finalResultDate,
+
+            // 감리사 분리 저장
+            supervisor_demerit_item: addForm.supervisorDemerit.item,
+            supervisor_demerit_score: addForm.supervisorDemerit.score,
+            supervisor_demerit_notice_date: addForm.supervisorDemerit.noticeDate,
+            supervisor_demerit_opinion_deadline: addForm.supervisorDemerit.opinionDeadline,
+            supervisor_opinion_result: addForm.supervisorDemerit.opinionResult,
+            supervisor_demerit_review_meeting_date: addForm.supervisorDemerit.reviewMeetingDate,
+            supervisor_demerit_notice_result_date: addForm.supervisorDemerit.noticeResultDate,
+            supervisor_demerit_appeal_deadline: addForm.supervisorDemerit.appealDeadline,
+            supervisor_has_appeal_submitted: addForm.supervisorDemerit.hasAppealSubmitted,
+            supervisor_demerit_committee_date: addForm.supervisorDemerit.committeeDate,
+            supervisor_demerit_final_result_date: addForm.supervisorDemerit.finalResultDate,
 
             has_lawsuit: addForm.hasLawsuit,
             lawsuit_court: addForm.lawsuitCourt,
@@ -462,7 +499,7 @@ export default function Home() {
         ]);
 
         if (error) {
-          alert(`[DB 저장 실패 원인]\n${error.message}\n\n1단계의 SQL 쿼리를 실행하여 DB 테이블 권한을 수정해 주세요.`);
+          alert(`[DB 저장 오류]\n${error.message}`);
         } else {
           await fetchEvents();
         }
@@ -476,7 +513,7 @@ export default function Home() {
     }
 
     setIsAddModalOpen(false);
-    alert(`[${addForm.date}] 날짜로 새 일정이 추가되었습니다! 해당 연/월 달력 위치로 이동합니다.`);
+    alert(`[${addForm.date}] 날짜로 새 일정이 추가되었습니다.`);
   };
 
   const handleClearDatabase = async () => {
@@ -554,167 +591,6 @@ export default function Home() {
     alert("일정이 삭제되었습니다.");
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsLoading(true);
-    const reader = new FileReader();
-
-    reader.onload = async (evt) => {
-      try {
-        const bstr = evt.target?.result;
-        const workbook = XLSX.read(bstr, { type: "binary", cellDates: true });
-        const wsname = workbook.SheetNames[0];
-        const ws = workbook.Sheets[wsname];
-
-        const sheetData: any[][] = XLSX.utils.sheet_to_json(ws, {
-          header: 1,
-          defval: "",
-        });
-
-        if (sheetData.length < 4) {
-          alert("엑셀 파일에 데이터가 부족합니다.");
-          setIsLoading(false);
-          return;
-        }
-
-        const newCalendarEvents: CalendarEvent[] = [];
-        const dbRowsToInsert: any[] = [];
-
-        for (let r = 0; r < sheetData.length; r++) {
-          const row = sheetData[r];
-          if (!row || row.length === 0) continue;
-
-          const seq = String(row[1] || "").trim();
-          const orderType = String(row[2] || "").trim();
-          const category = String(row[3] || "").trim();
-          const client = String(row[4] || "").trim();
-          const projectName = String(row[5] || "").trim();
-          const address = String(row[6] || "").trim();
-          const startDate = formatDate(row[9]);
-          const endDate = formatDate(row[10]);
-          const builder = String(row[17] || "").trim();
-          const supervisor = String(row[18] || "").trim();
-          const agentName = String(row[19] || "").trim();
-          const agentPhone = String(row[20] || "").trim();
-          const agentEmail = String(row[21] || "").trim();
-          const progressStatus = String(row[22] || "").trim();
-          const teamRaw = String(row[23] || "").trim();
-          const rawCheckDate = row[24];
-
-          if (teamRaw === "담당조" || String(rawCheckDate).includes("점검예정일")) continue;
-
-          const checkDate = parseCheckDate(rawCheckDate);
-          if (!checkDate) continue;
-
-          const team = teamRaw || "1조";
-          const color = TEAM_COLORS[team] || "#60A5FA";
-          const title = `${team} - ${projectName.replace(/\n/g, " ") || "현장점검"}`;
-
-          const eventItem: CalendarEvent = {
-            id: String(Date.now() + Math.random() * 10000 + r),
-            title,
-            start: checkDate,
-            backgroundColor: color,
-            borderColor: color,
-            extendedProps: {
-              seq,
-              orderType,
-              category,
-              client,
-              projectName,
-              address,
-              startDate,
-              endDate,
-              builder,
-              supervisor,
-              agentName,
-              agentPhone,
-              agentEmail,
-              progressStatus,
-              team,
-              checkDate,
-              eventType: "inspection",
-              hasFine: false,
-              fineAmount: "",
-              penaltyReason: "",
-              hasDemerit: false,
-              demeritTarget: "시공사",
-              demeritItem: "",
-              demeritScore: "",
-              demeritNoticeDate: "",
-              demeritOpinionDeadline: "",
-              hasOpinionSubmitted: false,
-              opinionResult: "미제출",
-              demeritReviewMeetingDate: "",
-              demeritNoticeResultDate: "",
-              demeritAppealDeadline: "",
-              hasAppealSubmitted: false,
-              demeritCommitteeDate: "",
-              demeritFinalResultDate: "",
-              hasLawsuit: false,
-              lawsuitCourt: "",
-              lawsuitCaseNumber: "",
-              lawsuitStatus: "소 제기(접수)",
-              lawsuitLawyer: "",
-              lawsuitResult: "",
-              lawsuitNotes: "",
-            },
-          };
-
-          newCalendarEvents.push(eventItem);
-
-          dbRowsToInsert.push({
-            title,
-            start_date: checkDate,
-            end_date: null,
-            bg_color: color,
-            border_color: color,
-            team,
-            members: builder,
-            location: projectName,
-            notes: progressStatus,
-            seq,
-            order_type: orderType,
-            category,
-            client,
-            address,
-            start_date_work: startDate,
-            end_date_work: endDate,
-            supervisor,
-            agent_name: agentName,
-            agent_phone: agentPhone,
-            agent_email: agentEmail,
-            has_demerit: false,
-          });
-        }
-
-        setEvents((prev) => [...prev, ...newCalendarEvents]);
-
-        const supabase = getSupabaseClient();
-        if (supabase && dbRowsToInsert.length > 0) {
-          try {
-            await supabase.from("events").insert(dbRowsToInsert);
-            await fetchEvents();
-          } catch (e) {
-            console.error("DB 동기화 에러:", e);
-          }
-        }
-
-        alert(`총 ${newCalendarEvents.length}건의 일정이 추가되었습니다!`);
-      } catch (err: any) {
-        console.error("엑셀 파싱 오류:", err);
-        alert(`엑셀 처리 오류: ${err.message || err}`);
-      } finally {
-        setIsLoading(false);
-        if (fileInputRef.current) fileInputRef.current.value = "";
-      }
-    };
-
-    reader.readAsBinaryString(file);
-  };
-
   const handleEventClick = (info: any) => {
     const evt = info.event;
     const props = evt.extendedProps;
@@ -749,19 +625,9 @@ export default function Home() {
         penaltyReason: props.penaltyReason || "",
 
         hasDemerit: !!props.hasDemerit,
-        demeritTarget: props.demeritTarget || "시공사",
-        demeritItem: props.demeritItem || "",
-        demeritScore: props.demeritScore || "",
-        demeritNoticeDate: props.demeritNoticeDate || "",
-        demeritOpinionDeadline: props.demeritOpinionDeadline || "",
-        hasOpinionSubmitted: !!props.hasOpinionSubmitted,
-        opinionResult: props.opinionResult || "미제출",
-        demeritReviewMeetingDate: props.demeritReviewMeetingDate || "",
-        demeritNoticeResultDate: props.demeritNoticeResultDate || "",
-        demeritAppealDeadline: props.demeritAppealDeadline || "",
-        hasAppealSubmitted: !!props.hasAppealSubmitted,
-        demeritCommitteeDate: props.demeritCommitteeDate || "",
-        demeritFinalResultDate: props.demeritFinalResultDate || "",
+        demeritTarget: props.demeritTarget || "시공사 및 감리사",
+        builderDemerit: props.builderDemerit || defaultDemeritProc(),
+        supervisorDemerit: props.supervisorDemerit || defaultDemeritProc(),
 
         hasLawsuit: !!props.hasLawsuit,
         lawsuitCourt: props.lawsuitCourt || "",
@@ -838,18 +704,30 @@ export default function Home() {
 
               has_demerit: editForm.hasDemerit,
               demerit_target: editForm.demeritTarget,
-              demerit_item: editForm.demeritItem,
-              demerit_score: editForm.demeritScore,
-              demerit_notice_date: editForm.demeritNoticeDate,
-              demerit_opinion_deadline: editForm.demeritOpinionDeadline,
-              has_opinion_submitted: editForm.hasOpinionSubmitted,
-              opinion_result: editForm.opinionResult,
-              demerit_review_meeting_date: editForm.demeritReviewMeetingDate,
-              demerit_notice_result_date: editForm.demeritNoticeResultDate,
-              demerit_appeal_deadline: editForm.demeritAppealDeadline,
-              has_appeal_submitted: editForm.hasAppealSubmitted,
-              demerit_committee_date: editForm.demeritCommitteeDate,
-              demerit_final_result_date: editForm.demeritFinalResultDate,
+
+              builder_demerit_item: editForm.builderDemerit?.item,
+              builder_demerit_score: editForm.builderDemerit?.score,
+              builder_demerit_notice_date: editForm.builderDemerit?.noticeDate,
+              builder_demerit_opinion_deadline: editForm.builderDemerit?.opinionDeadline,
+              builder_opinion_result: editForm.builderDemerit?.opinionResult,
+              builder_demerit_review_meeting_date: editForm.builderDemerit?.reviewMeetingDate,
+              builder_demerit_notice_result_date: editForm.builderDemerit?.noticeResultDate,
+              builder_demerit_appeal_deadline: editForm.builderDemerit?.appealDeadline,
+              builder_has_appeal_submitted: editForm.builderDemerit?.hasAppealSubmitted,
+              builder_demerit_committee_date: editForm.builderDemerit?.committeeDate,
+              builder_demerit_final_result_date: editForm.builderDemerit?.finalResultDate,
+
+              supervisor_demerit_item: editForm.supervisorDemerit?.item,
+              supervisor_demerit_score: editForm.supervisorDemerit?.score,
+              supervisor_demerit_notice_date: editForm.supervisorDemerit?.noticeDate,
+              supervisor_demerit_opinion_deadline: editForm.supervisorDemerit?.opinionDeadline,
+              supervisor_opinion_result: editForm.supervisorDemerit?.opinionResult,
+              supervisor_demerit_review_meeting_date: editForm.supervisorDemerit?.reviewMeetingDate,
+              supervisor_demerit_notice_result_date: editForm.supervisorDemerit?.noticeResultDate,
+              supervisor_demerit_appeal_deadline: editForm.supervisorDemerit?.appealDeadline,
+              supervisor_has_appeal_submitted: editForm.supervisorDemerit?.hasAppealSubmitted,
+              supervisor_demerit_committee_date: editForm.supervisorDemerit?.committeeDate,
+              supervisor_demerit_final_result_date: editForm.supervisorDemerit?.finalResultDate,
 
               has_lawsuit: editForm.hasLawsuit,
               lawsuit_court: editForm.lawsuitCourt,
@@ -887,7 +765,8 @@ export default function Home() {
       e.extendedProps.projectName.toLowerCase().includes(q) ||
       e.extendedProps.builder.toLowerCase().includes(q) ||
       e.extendedProps.penaltyReason.toLowerCase().includes(q) ||
-      e.extendedProps.demeritItem.toLowerCase().includes(q) ||
+      (e.extendedProps.builderDemerit?.item || "").toLowerCase().includes(q) ||
+      (e.extendedProps.supervisorDemerit?.item || "").toLowerCase().includes(q) ||
       e.extendedProps.lawsuitCaseNumber.toLowerCase().includes(q)
     );
   });
@@ -961,6 +840,241 @@ export default function Home() {
     );
   }
 
+  // 벌점 세부 입력 서브 컴포넌트
+  const DemeritProcInputs = ({
+    title,
+    icon,
+    proc,
+    onChange,
+  }: {
+    title: string;
+    icon: React.ReactNode;
+    proc: DemeritProc;
+    onChange: (updated: DemeritProc) => void;
+  }) => (
+    <div className="bg-white p-3 rounded-xl border border-rose-200 space-y-2.5 shadow-sm">
+      <span className="font-bold text-rose-900 text-xs flex items-center gap-1 border-b border-rose-100 pb-1.5">
+        {icon}
+        {title} 벌점 세부 절차
+      </span>
+
+      <div>
+        <label className="font-semibold text-slate-700 block mb-0.5">벌점 항목 (지적 분야 - 여러 항목 가능)</label>
+        <textarea
+          rows={2}
+          placeholder="예: 1. 품질시험계획 다르게 실시\n2. 안전관리비 정산 부적정"
+          value={proc.item}
+          onChange={(e) => onChange({ ...proc, item: e.target.value })}
+          className="w-full border p-2 rounded-lg bg-slate-50 text-xs"
+        />
+      </div>
+
+      <div>
+        <label className="font-semibold text-slate-700 block mb-0.5">벌점 점수 (점)</label>
+        <input
+          type="text"
+          placeholder="예: 1.5"
+          value={proc.score}
+          onChange={(e) => onChange({ ...proc, score: e.target.value })}
+          className="w-full border p-1.5 rounded-lg bg-slate-50 text-xs"
+        />
+      </div>
+
+      <div className="space-y-2 pt-1 border-t border-rose-100">
+        <span className="font-bold text-rose-800 text-[11px] block">1단계: 사전통지 및 의견제출 결과</span>
+        
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[11px] text-slate-600 block">사전통지일</label>
+            <input
+              type="date"
+              value={proc.noticeDate}
+              onChange={(e) => onChange({ ...proc, noticeDate: e.target.value })}
+              className="w-full border p-1 rounded-lg bg-slate-50 text-xs"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] text-slate-600 block">의견제출 마감일</label>
+            <input
+              type="date"
+              value={proc.opinionDeadline}
+              onChange={(e) => onChange({ ...proc, opinionDeadline: e.target.value })}
+              className="w-full border p-1 rounded-lg bg-slate-50 text-xs"
+            />
+          </div>
+        </div>
+
+        <div className="bg-rose-50/50 p-2 rounded-lg border border-rose-100 space-y-1">
+          <label className="font-bold text-rose-900 block text-[11px]">의견제출 검토 결과 *</label>
+          <select
+            value={proc.opinionResult}
+            onChange={(e) => onChange({ ...proc, opinionResult: e.target.value })}
+            className="w-full border p-1 rounded-lg bg-white font-semibold text-xs"
+          >
+            <option value="미제출">의견 미제출 (진행 계속)</option>
+            <option value="불수용">의견 제출 - 불수용 (진행 계속)</option>
+            <option value="수용(종결)">의견 제출 - 수용 (벌점부과 철회/종결)</option>
+          </select>
+        </div>
+
+        {proc.opinionResult === "수용(종결)" ? (
+          <div className="bg-emerald-50 text-emerald-800 p-2 rounded-lg border border-emerald-200 text-[11px] font-bold flex items-center gap-1">
+            <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />
+            의견이 수용되어 {title} 벌점 절차가 종결되었습니다.
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <div>
+                <label className="text-[11px] text-slate-600 block">의견검토회의일</label>
+                <input
+                  type="date"
+                  value={proc.reviewMeetingDate}
+                  onChange={(e) => onChange({ ...proc, reviewMeetingDate: e.target.value })}
+                  className="w-full border p-1 rounded-lg bg-slate-50 text-xs"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-slate-600 block">검토결과 통보일</label>
+                <input
+                  type="date"
+                  value={proc.noticeResultDate}
+                  onChange={(e) => onChange({ ...proc, noticeResultDate: e.target.value })}
+                  className="w-full border p-1 rounded-lg bg-slate-50 text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5 pt-2 border-t border-rose-100">
+              <span className="font-bold text-rose-800 text-[11px] block">2단계: 이의제기 및 외부심의회</span>
+              
+              <div>
+                <label className="text-[11px] text-slate-600 block mb-0.5">이의제기 마감일</label>
+                <input
+                  type="date"
+                  value={proc.appealDeadline}
+                  onChange={(e) => onChange({ ...proc, appealDeadline: e.target.value })}
+                  className="w-full border p-1 rounded-lg bg-slate-50 text-xs"
+                />
+              </div>
+
+              <div className="bg-rose-50/50 p-2 rounded-lg border border-rose-100 space-y-1">
+                <label className="font-bold text-rose-900 block text-[11px]">이의제기 제출 여부 *</label>
+                <div className="flex gap-3 text-xs">
+                  <label className="flex items-center gap-1 font-semibold text-slate-700">
+                    <input
+                      type="radio"
+                      checked={!proc.hasAppealSubmitted}
+                      onChange={() => onChange({ ...proc, hasAppealSubmitted: false })}
+                    />
+                    미제출 (벌점 확정)
+                  </label>
+                  <label className="flex items-center gap-1 font-semibold text-purple-800">
+                    <input
+                      type="radio"
+                      checked={proc.hasAppealSubmitted}
+                      onChange={() => onChange({ ...proc, hasAppealSubmitted: true })}
+                    />
+                    이의제기 (외부심의)
+                  </label>
+                </div>
+              </div>
+
+              {proc.hasAppealSubmitted && (
+                <div className="grid grid-cols-2 gap-2 bg-purple-50/60 p-2 rounded-lg border border-purple-100">
+                  <div>
+                    <label className="text-[11px] text-slate-600 block">외부심의회 개최일</label>
+                    <input
+                      type="date"
+                      value={proc.committeeDate}
+                      onChange={(e) => onChange({ ...proc, committeeDate: e.target.value })}
+                      className="w-full border p-1 rounded-lg bg-white text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-slate-600 block">최종결과 통보일</label>
+                    <input
+                      type="date"
+                      value={proc.finalResultDate}
+                      onChange={(e) => onChange({ ...proc, finalResultDate: e.target.value })}
+                      className="w-full border p-1 rounded-lg bg-white text-xs"
+                    />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  // 벌점 세부 열람 카드 컴포넌트
+  const DemeritDisplayCard = ({ title, icon, proc }: { title: string; icon: React.ReactNode; proc: DemeritProc }) => {
+    if (!proc || (!proc.item && !proc.score)) return null;
+
+    return (
+      <div className="bg-white/90 p-3 rounded-xl border border-rose-200 text-xs space-y-2">
+        <div className="flex items-center justify-between border-b border-rose-100 pb-1.5">
+          <span className="font-bold text-rose-950 flex items-center gap-1 text-xs">
+            {icon}
+            {title} 벌점 처분
+          </span>
+          <span className="bg-rose-600 text-white font-black text-[11px] px-2 py-0.5 rounded-full">
+            {proc.score || "0"}점
+          </span>
+        </div>
+
+        <div className="flex flex-wrap gap-1">
+          {proc.opinionResult === "수용(종결)" ? (
+            <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded">
+              🟢 의견제출 수용 (철회/종결)
+            </span>
+          ) : !proc.hasAppealSubmitted ? (
+            <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded">
+              🟠 이의제기 미제출 (벌점 확정)
+            </span>
+          ) : (
+            <span className="bg-purple-100 text-purple-800 text-[10px] font-bold px-2 py-0.5 rounded">
+              🟣 외부심의 진행 중
+            </span>
+          )}
+        </div>
+
+        {proc.item && (
+          <div>
+            <span className="font-semibold text-rose-900 block text-[11px]">지적 및 벌점 항목:</span>
+            <p className="text-slate-800 font-medium whitespace-pre-wrap mt-0.5">{proc.item}</p>
+          </div>
+        )}
+
+        <div className="bg-rose-50/50 p-2.5 rounded-lg border border-rose-100 text-[11px] space-y-1">
+          <span className="font-bold text-rose-900 block mb-0.5">📌 진행 일정:</span>
+          <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-slate-700">
+            <div>• 사전통지일: <span className="font-semibold">{proc.noticeDate || "-"}</span></div>
+            <div>• 의견마감일: <span className="font-semibold text-rose-700">{proc.opinionDeadline || "-"}</span></div>
+            <div>• 의견검토결과: <span className="font-bold text-rose-800">{proc.opinionResult || "미제출"}</span></div>
+            
+            {proc.opinionResult !== "수용(종결)" && (
+              <>
+                <div>• 검토회의일: <span className="font-semibold">{proc.reviewMeetingDate || "-"}</span></div>
+                <div>• 결과통보일: <span className="font-semibold">{proc.noticeResultDate || "-"}</span></div>
+                <div>• 이의마감일: <span className="font-semibold text-rose-700">{proc.appealDeadline || "-"}</span></div>
+                <div>• 이의제기여부: <span className="font-semibold">{proc.hasAppealSubmitted ? "제출됨" : "미제출"}</span></div>
+                {proc.hasAppealSubmitted && (
+                  <>
+                    <div>• 외부심의일: <span className="font-semibold text-purple-700">{proc.committeeDate || "-"}</span></div>
+                    <div>• 최종통보일: <span className="font-semibold">{proc.finalResultDate || "-"}</span></div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <main className="min-h-screen bg-slate-50 p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -970,7 +1084,7 @@ export default function Home() {
               건설안전과 일정 캘린더
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              2010년 이후 점검 및 회의 일정과 벌점/과태료 부과 및 소송 진행 현황 통합 관리
+              시공사/감리사 분리 벌점 관리 및 과태료/소송 통합 대시보드
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -1110,7 +1224,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 📊 벌점·과태료 부과 현황 통계 대시보드 모달 */}
+      {/* 통계 모달 */}
       {isStatsModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 space-y-5 max-h-[90vh] overflow-y-auto">
@@ -1209,8 +1323,7 @@ export default function Home() {
                         <td className="p-2.5 text-slate-500 whitespace-nowrap">{e.start}</td>
                         <td className="p-2.5 font-bold text-slate-800">{e.extendedProps.projectName}</td>
                         <td className="p-2.5 text-slate-600">
-                          {e.extendedProps.demeritTarget ? `[${e.extendedProps.demeritTarget}] ` : ""}
-                          {e.extendedProps.demeritItem || e.extendedProps.builder || "-"}
+                          [{e.extendedProps.demeritTarget || "벌점"}]
                         </td>
                         <td className="p-2.5 text-center whitespace-nowrap">
                           {e.extendedProps.hasDemerit && (
@@ -1230,7 +1343,7 @@ export default function Home() {
                           )}
                         </td>
                         <td className="p-2.5 text-right font-semibold text-rose-600 whitespace-nowrap">
-                          {e.extendedProps.hasDemerit && `${e.extendedProps.demeritScore}점 `}
+                          {e.extendedProps.hasDemerit && "부과 "}
                           {e.extendedProps.hasLawsuit && (
                             <span className="text-indigo-600 font-bold block text-[11px]">
                               ⚖️ {e.extendedProps.lawsuitStatus}
@@ -1263,7 +1376,7 @@ export default function Home() {
       {/* 회의 및 기타일정 추가 팝업 모달 */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b pb-3">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                 <PlusCircle className="text-emerald-600" size={20} />
@@ -1344,11 +1457,12 @@ export default function Home() {
                 />
               </div>
 
+              {/* 🚨 시공사 / 감리사 분리 벌점 설정 영역 */}
               <div className="bg-rose-50/80 border border-rose-200 p-3.5 rounded-xl space-y-3">
                 <div className="flex items-center justify-between border-b border-rose-200 pb-2">
                   <span className="font-bold text-rose-900 flex items-center gap-1">
                     <AlertTriangle size={15} />
-                    벌점 부과 상세 프로세스
+                    벌점 부과 세부 설정
                   </span>
                   <label className="flex items-center gap-1.5 font-bold text-rose-700">
                     <input
@@ -1359,177 +1473,46 @@ export default function Home() {
                       }
                       className="rounded text-rose-600 focus:ring-rose-500"
                     />
-                    벌점부과 현장 설정
+                    벌점부과 현장
                   </label>
                 </div>
 
                 {addForm.hasDemerit && (
-                  <div className="space-y-2.5 pt-1">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="font-semibold text-slate-700 block mb-0.5">벌점 대상</label>
-                        <select
-                          value={addForm.demeritTarget}
-                          onChange={(e) => setAddForm({ ...addForm, demeritTarget: e.target.value })}
-                          className="w-full border p-2 rounded-lg bg-white"
-                        >
-                          <option value="시공사">시공사</option>
-                          <option value="감리사">감리사</option>
-                          <option value="시공사 및 감리사">시공사 및 감리사</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="font-semibold text-slate-700 block mb-0.5">벌점 점수 (점)</label>
-                        <input
-                          type="text"
-                          placeholder="예: 1.5"
-                          value={addForm.demeritScore}
-                          onChange={(e) => setAddForm({ ...addForm, demeritScore: e.target.value })}
-                          className="w-full border p-2 rounded-lg bg-white"
-                        />
-                      </div>
-                    </div>
-
+                  <div className="space-y-3 pt-1">
                     <div>
-                      <label className="font-semibold text-slate-700 block mb-0.5">벌점 항목 (지적 분야)</label>
-                      <input
-                        type="text"
-                        placeholder="예: 안전관리비 정산 부적정"
-                        value={addForm.demeritItem}
-                        onChange={(e) => setAddForm({ ...addForm, demeritItem: e.target.value })}
-                        className="w-full border p-2 rounded-lg bg-white"
+                      <label className="font-bold text-slate-700 block mb-1">벌점 처분 대상 선택 *</label>
+                      <select
+                        value={addForm.demeritTarget}
+                        onChange={(e) => setAddForm({ ...addForm, demeritTarget: e.target.value })}
+                        className="w-full border p-2 rounded-lg bg-white font-bold text-slate-800"
+                      >
+                        <option value="시공사 및 감리사">시공사 및 감리사 (동시 부과 - 각기 설정)</option>
+                        <option value="시공사">시공사만 부과</option>
+                        <option value="감리사">감리사만 부과</option>
+                      </select>
+                    </div>
+
+                    {/* 시공사 벌점 설정 */}
+                    {(addForm.demeritTarget === "시공사" || addForm.demeritTarget === "시공사 및 감리사") && (
+                      <DemeritProcInputs
+                        title="시공사"
+                        icon={<HardHat size={15} className="text-amber-600" />}
+                        proc={addForm.builderDemerit}
+                        onChange={(updated) => setAddForm({ ...addForm, builderDemerit: updated })}
                       />
-                    </div>
+                    )}
 
-                    <div className="space-y-2 pt-1 border-t border-rose-200/60">
-                      <span className="font-bold text-rose-800 text-[11px] block">1단계: 사전통지 및 의견제출 결과</span>
-                      
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-[11px] text-slate-600 block">사전통지일</label>
-                          <input
-                            type="date"
-                            value={addForm.demeritNoticeDate}
-                            onChange={(e) => setAddForm({ ...addForm, demeritNoticeDate: e.target.value })}
-                            className="w-full border p-1.5 rounded-lg bg-white"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[11px] text-slate-600 block">의견제출 마감일</label>
-                          <input
-                            type="date"
-                            value={addForm.demeritOpinionDeadline}
-                            onChange={(e) => setAddForm({ ...addForm, demeritOpinionDeadline: e.target.value })}
-                            className="w-full border p-1.5 rounded-lg bg-white"
-                          />
-                        </div>
-                      </div>
+                    {/* 감리사 벌점 설정 */}
+                    {(addForm.demeritTarget === "감리사" || addForm.demeritTarget === "시공사 및 감리사") && (
+                      <DemeritProcInputs
+                        title="감리사"
+                        icon={<ShieldCheck size={15} className="text-blue-600" />}
+                        proc={addForm.supervisorDemerit}
+                        onChange={(updated) => setAddForm({ ...addForm, supervisorDemerit: updated })}
+                      />
+                    )}
 
-                      <div className="bg-white p-2.5 rounded-lg border border-rose-200 space-y-1.5">
-                        <label className="font-bold text-rose-900 block text-[11px]">의견제출 검토 결과 선택 *</label>
-                        <select
-                          value={addForm.opinionResult}
-                          onChange={(e) => setAddForm({ ...addForm, opinionResult: e.target.value })}
-                          className="w-full border p-1.5 rounded-lg bg-slate-50 font-semibold"
-                        >
-                          <option value="미제출">의견 미제출 (진행 계속)</option>
-                          <option value="불수용">의견 제출 - 불수용 (진행 계속)</option>
-                          <option value="수용(종결)">의견 제출 - 수용 (벌점부과 철회/종결)</option>
-                        </select>
-                      </div>
-
-                      {addForm.opinionResult === "수용(종결)" ? (
-                        <div className="bg-emerald-50 text-emerald-800 p-2.5 rounded-lg border border-emerald-200 text-[11px] font-bold flex items-center gap-1.5">
-                          <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-                          의견이 수용되어 절차가 종결되었습니다.
-                        </div>
-                      ) : (
-                        <>
-                          <div className="grid grid-cols-2 gap-2 pt-1">
-                            <div>
-                              <label className="text-[11px] text-slate-600 block">의견검토회의일</label>
-                              <input
-                                type="date"
-                                value={addForm.demeritReviewMeetingDate}
-                                onChange={(e) => setAddForm({ ...addForm, demeritReviewMeetingDate: e.target.value })}
-                                className="w-full border p-1.5 rounded-lg bg-white"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[11px] text-slate-600 block">검토결과 통보일</label>
-                              <input
-                                type="date"
-                                value={addForm.demeritNoticeResultDate}
-                                onChange={(e) => setAddForm({ ...addForm, demeritNoticeResultDate: e.target.value })}
-                                className="w-full border p-1.5 rounded-lg bg-white"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="space-y-2 pt-2 border-t border-rose-200/60">
-                            <span className="font-bold text-rose-800 text-[11px] block">2단계: 이의제기 및 외부심의회</span>
-                            
-                            <div>
-                              <label className="text-[11px] text-slate-600 block mb-0.5">이의제기 마감일</label>
-                              <input
-                                type="date"
-                                value={addForm.demeritAppealDeadline}
-                                onChange={(e) => setAddForm({ ...addForm, demeritAppealDeadline: e.target.value })}
-                                className="w-full border p-1.5 rounded-lg bg-white"
-                              />
-                            </div>
-
-                            <div className="bg-white p-2.5 rounded-lg border border-rose-200 space-y-1.5">
-                              <label className="font-bold text-rose-900 block text-[11px]">이의제기 제출 여부 *</label>
-                              <div className="flex gap-4">
-                                <label className="flex items-center gap-1 font-semibold text-slate-700">
-                                  <input
-                                    type="radio"
-                                    name="appeal"
-                                    checked={!addForm.hasAppealSubmitted}
-                                    onChange={() => setAddForm({ ...addForm, hasAppealSubmitted: false })}
-                                  />
-                                  미제출 (벌점 확정 종결)
-                                </label>
-                                <label className="flex items-center gap-1 font-semibold text-purple-800">
-                                  <input
-                                    type="radio"
-                                    name="appeal"
-                                    checked={addForm.hasAppealSubmitted}
-                                    onChange={() => setAddForm({ ...addForm, hasAppealSubmitted: true })}
-                                  />
-                                  이의제기 제출 (외부심의 진행)
-                                </label>
-                              </div>
-                            </div>
-
-                            {addForm.hasAppealSubmitted && (
-                              <div className="grid grid-cols-2 gap-2 bg-purple-50/60 p-2 rounded-lg border border-purple-100">
-                                <div>
-                                  <label className="text-[11px] text-slate-600 block">외부심의회 개최일</label>
-                                  <input
-                                    type="date"
-                                    value={addForm.demeritCommitteeDate}
-                                    onChange={(e) => setAddForm({ ...addForm, demeritCommitteeDate: e.target.value })}
-                                    className="w-full border p-1.5 rounded-lg bg-white"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="text-[11px] text-slate-600 block">최종결과 통보일</label>
-                                  <input
-                                    type="date"
-                                    value={addForm.demeritFinalResultDate}
-                                    onChange={(e) => setAddForm({ ...addForm, demeritFinalResultDate: e.target.value })}
-                                    className="w-full border p-1.5 rounded-lg bg-white"
-                                  />
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </>
-                      )}
-                    </div>
-
+                    {/* 행정 소송 설정 */}
                     <div className="bg-indigo-50/90 border border-indigo-200 p-3 rounded-xl space-y-2 mt-2">
                       <div className="flex items-center justify-between border-b border-indigo-200 pb-1.5">
                         <span className="font-bold text-indigo-950 flex items-center gap-1">
@@ -1790,11 +1773,12 @@ export default function Home() {
                   />
                 </div>
 
+                {/* 벌점 프로세스 수정 영역 */}
                 <div className="bg-rose-50/80 border border-rose-200 p-3.5 rounded-xl space-y-3">
                   <div className="flex items-center justify-between border-b border-rose-200 pb-2">
                     <span className="font-bold text-rose-900 flex items-center gap-1">
                       <AlertTriangle size={15} />
-                      벌점 부과 상세 프로세스
+                      벌점 부과 세부 설정
                     </span>
                     <label className="flex items-center gap-1.5 font-bold text-rose-700">
                       <input
@@ -1808,169 +1792,37 @@ export default function Home() {
                   </div>
 
                   {editForm.hasDemerit && (
-                    <div className="space-y-2.5 pt-1">
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="font-semibold text-slate-700 block mb-0.5">벌점 대상</label>
-                          <select
-                            value={editForm.demeritTarget || "시공사"}
-                            onChange={(e) => setEditForm({ ...editForm, demeritTarget: e.target.value })}
-                            className="w-full border p-2 rounded-lg bg-white"
-                          >
-                            <option value="시공사">시공사</option>
-                            <option value="감리사">감리사</option>
-                            <option value="시공사 및 감리사">시공사 및 감리사</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="font-semibold text-slate-700 block mb-0.5">벌점 점수 (점)</label>
-                          <input
-                            type="text"
-                            value={editForm.demeritScore || ""}
-                            onChange={(e) => setEditForm({ ...editForm, demeritScore: e.target.value })}
-                            className="w-full border p-2 rounded-lg bg-white"
-                          />
-                        </div>
-                      </div>
-
+                    <div className="space-y-3 pt-1">
                       <div>
-                        <label className="font-semibold text-slate-700 block mb-0.5">벌점 항목 (지적 분야)</label>
-                        <input
-                          type="text"
-                          value={editForm.demeritItem || ""}
-                          onChange={(e) => setEditForm({ ...editForm, demeritItem: e.target.value })}
-                          className="w-full border p-2 rounded-lg bg-white"
+                        <label className="font-bold text-slate-700 block mb-1">벌점 처분 대상 선택 *</label>
+                        <select
+                          value={editForm.demeritTarget || "시공사 및 감리사"}
+                          onChange={(e) => setEditForm({ ...editForm, demeritTarget: e.target.value })}
+                          className="w-full border p-2 rounded-lg bg-white font-bold text-slate-800"
+                        >
+                          <option value="시공사 및 감리사">시공사 및 감리사 (동시 부과)</option>
+                          <option value="시공사">시공사만 부과</option>
+                          <option value="감리사">감리사만 부과</option>
+                        </select>
+                      </div>
+
+                      {(editForm.demeritTarget === "시공사" || editForm.demeritTarget === "시공사 및 감리사") && (
+                        <DemeritProcInputs
+                          title="시공사"
+                          icon={<HardHat size={15} className="text-amber-600" />}
+                          proc={editForm.builderDemerit || defaultDemeritProc()}
+                          onChange={(updated) => setEditForm({ ...editForm, builderDemerit: updated })}
                         />
-                      </div>
+                      )}
 
-                      <div className="space-y-2 pt-1 border-t border-rose-200/60">
-                        <span className="font-bold text-rose-800 text-[11px] block">1단계: 사전통지 및 의견제출 결과</span>
-                        
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className="text-[11px] text-slate-600 block">사전통지일</label>
-                            <input
-                              type="date"
-                              value={editForm.demeritNoticeDate || ""}
-                              onChange={(e) => setEditForm({ ...editForm, demeritNoticeDate: e.target.value })}
-                              className="w-full border p-1.5 rounded-lg bg-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[11px] text-slate-600 block">의견제출 마감일</label>
-                            <input
-                              type="date"
-                              value={editForm.demeritOpinionDeadline || ""}
-                              onChange={(e) => setEditForm({ ...editForm, demeritOpinionDeadline: e.target.value })}
-                              className="w-full border p-1.5 rounded-lg bg-white"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="bg-white p-2.5 rounded-lg border border-rose-200 space-y-1.5">
-                          <label className="font-bold text-rose-900 block text-[11px]">의견제출 검토 결과 선택 *</label>
-                          <select
-                            value={editForm.opinionResult || "미제출"}
-                            onChange={(e) => setEditForm({ ...editForm, opinionResult: e.target.value })}
-                            className="w-full border p-1.5 rounded-lg bg-slate-50 font-semibold"
-                          >
-                            <option value="미제출">의견 미제출 (진행 계속)</option>
-                            <option value="불수용">의견 제출 - 불수용 (진행 계속)</option>
-                            <option value="수용(종결)">의견 제출 - 수용 (벌점부과 철회/종결)</option>
-                          </select>
-                        </div>
-
-                        {editForm.opinionResult === "수용(종결)" ? (
-                          <div className="bg-emerald-50 text-emerald-800 p-2.5 rounded-lg border border-emerald-200 text-[11px] font-bold flex items-center gap-1.5">
-                            <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-                            의견이 수용되어 절차가 종결되었습니다.
-                          </div>
-                        ) : (
-                          <>
-                            <div className="grid grid-cols-2 gap-2 pt-1">
-                              <div>
-                                <label className="text-[11px] text-slate-600 block">의견검토회의일</label>
-                                <input
-                                  type="date"
-                                  value={editForm.demeritReviewMeetingDate || ""}
-                                  onChange={(e) => setEditForm({ ...editForm, demeritReviewMeetingDate: e.target.value })}
-                                  className="w-full border p-1.5 rounded-lg bg-white"
-                                />
-                              </div>
-                              <div>
-                                <label className="text-[11px] text-slate-600 block">검토결과 통보일</label>
-                                <input
-                                  type="date"
-                                  value={editForm.demeritNoticeResultDate || ""}
-                                  onChange={(e) => setEditForm({ ...editForm, demeritNoticeResultDate: e.target.value })}
-                                  className="w-full border p-1.5 rounded-lg bg-white"
-                                />
-                              </div>
-                            </div>
-
-                            <div className="space-y-2 pt-2 border-t border-rose-200/60">
-                              <span className="font-bold text-rose-800 text-[11px] block">2단계: 이의제기 및 외부심의회</span>
-                              
-                              <div>
-                                <label className="text-[11px] text-slate-600 block mb-0.5">이의제기 마감일</label>
-                                <input
-                                  type="date"
-                                  value={editForm.demeritAppealDeadline || ""}
-                                  onChange={(e) => setEditForm({ ...editForm, demeritAppealDeadline: e.target.value })}
-                                  className="w-full border p-1.5 rounded-lg bg-white"
-                                />
-                              </div>
-
-                              <div className="bg-white p-2.5 rounded-lg border border-rose-200 space-y-1.5">
-                                <label className="font-bold text-rose-900 block text-[11px]">이의제기 제출 여부 *</label>
-                                <div className="flex gap-4">
-                                  <label className="flex items-center gap-1 font-semibold text-slate-700">
-                                    <input
-                                      type="radio"
-                                      name="editAppeal"
-                                      checked={!editForm.hasAppealSubmitted}
-                                      onChange={() => setEditForm({ ...editForm, hasAppealSubmitted: false })}
-                                    />
-                                    미제출 (벌점 확정 종결)
-                                  </label>
-                                  <label className="flex items-center gap-1 font-semibold text-purple-800">
-                                    <input
-                                      type="radio"
-                                      name="editAppeal"
-                                      checked={editForm.hasAppealSubmitted}
-                                      onChange={() => setEditForm({ ...editForm, hasAppealSubmitted: true })}
-                                    />
-                                    이의제기 제출 (외부심의 진행)
-                                  </label>
-                                </div>
-                              </div>
-
-                              {editForm.hasAppealSubmitted && (
-                                <div className="grid grid-cols-2 gap-2 bg-purple-50/60 p-2 rounded-lg border border-purple-100">
-                                  <div>
-                                    <label className="text-[11px] text-slate-600 block">외부심의회 개최일</label>
-                                    <input
-                                      type="date"
-                                      value={editForm.demeritCommitteeDate || ""}
-                                      onChange={(e) => setEditForm({ ...editForm, demeritCommitteeDate: e.target.value })}
-                                      className="w-full border p-1.5 rounded-lg bg-white"
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="text-[11px] text-slate-600 block">최종결과 통보일</label>
-                                    <input
-                                      type="date"
-                                      value={editForm.demeritFinalResultDate || ""}
-                                      onChange={(e) => setEditForm({ ...editForm, demeritFinalResultDate: e.target.value })}
-                                      className="w-full border p-1.5 rounded-lg bg-white"
-                                    />
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </>
-                        )}
-                      </div>
+                      {(editForm.demeritTarget === "감리사" || editForm.demeritTarget === "시공사 및 감리사") && (
+                        <DemeritProcInputs
+                          title="감리사"
+                          icon={<ShieldCheck size={15} className="text-blue-600" />}
+                          proc={editForm.supervisorDemerit || defaultDemeritProc()}
+                          onChange={(updated) => setEditForm({ ...editForm, supervisorDemerit: updated })}
+                        />
+                      )}
 
                       <div className="bg-indigo-50/90 border border-indigo-200 p-3 rounded-xl space-y-2 mt-2">
                         <div className="flex items-center justify-between border-b border-indigo-200 pb-1.5">
@@ -2112,69 +1964,37 @@ export default function Home() {
               </div>
             ) : (
               <div className="space-y-4 text-sm">
+                {/* 🚨 시공사 / 감리사 각각의 벌점 카드로 분리 표시 */}
                 {selectedEvent.extendedProps.hasDemerit && (
-                  <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl space-y-3">
-                    <div className="flex items-center justify-between border-b border-rose-200 pb-2">
-                      <div className="flex items-center gap-2">
-                        <AlertTriangle className="text-rose-600 shrink-0" size={18} />
-                        <span className="font-bold text-rose-950 text-xs">벌점 행정 처분 현장</span>
-                      </div>
-                      <span className="bg-rose-600 text-white text-xs font-black px-2.5 py-0.5 rounded-full">
-                        [{selectedEvent.extendedProps.demeritTarget}] {selectedEvent.extendedProps.demeritScore}점
+                  <div className="space-y-3">
+                    <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl flex items-center justify-between">
+                      <span className="font-bold text-rose-950 text-xs flex items-center gap-1">
+                        <AlertTriangle className="text-rose-600" size={16} />
+                        벌점 행정 처분 현장 ({selectedEvent.extendedProps.demeritTarget})
                       </span>
                     </div>
 
-                    <div className="flex flex-wrap gap-1.5">
-                      {selectedEvent.extendedProps.opinionResult === "수용(종결)" ? (
-                        <span className="bg-emerald-100 text-emerald-800 text-[11px] font-bold px-2 py-0.5 rounded border border-emerald-200">
-                          🟢 의견제출 수용 (벌점부과 철회/종결)
-                        </span>
-                      ) : !selectedEvent.extendedProps.hasAppealSubmitted ? (
-                        <span className="bg-amber-100 text-amber-800 text-[11px] font-bold px-2 py-0.5 rounded border border-amber-200">
-                          🟠 이의제기 미제출 (벌점 처분 확정)
-                        </span>
-                      ) : (
-                        <span className="bg-purple-100 text-purple-800 text-[11px] font-bold px-2 py-0.5 rounded border border-purple-200">
-                          🟣 외부심의 진행 중
-                        </span>
-                      )}
-                    </div>
-
-                    {selectedEvent.extendedProps.demeritItem && (
-                      <div className="text-xs">
-                        <span className="font-semibold text-rose-900 block">지적 및 벌점 항목:</span>
-                        <p className="text-slate-800 font-medium mt-0.5">{selectedEvent.extendedProps.demeritItem}</p>
-                      </div>
+                    {(selectedEvent.extendedProps.demeritTarget === "시공사" ||
+                      selectedEvent.extendedProps.demeritTarget === "시공사 및 감리사") && (
+                      <DemeritDisplayCard
+                        title="시공사"
+                        icon={<HardHat size={15} className="text-amber-600" />}
+                        proc={selectedEvent.extendedProps.builderDemerit}
+                      />
                     )}
 
-                    <div className="bg-white/80 p-3 rounded-lg border border-rose-100 text-xs space-y-1.5">
-                      <span className="font-bold text-rose-900 block text-[11px] mb-1">📌 행정 처리 단계별 진행 일정:</span>
-                      <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] text-slate-700">
-                        <div>• 점검일: <span className="font-semibold">{selectedEvent.start}</span></div>
-                        <div>• 사전통지일: <span className="font-semibold">{selectedEvent.extendedProps.demeritNoticeDate || "-"}</span></div>
-                        <div>• 의견제출 마감일: <span className="font-semibold text-rose-700">{selectedEvent.extendedProps.demeritOpinionDeadline || "-"}</span></div>
-                        <div>• 의견검토 결과: <span className="font-bold text-rose-800">{selectedEvent.extendedProps.opinionResult || "미제출"}</span></div>
-                        
-                        {selectedEvent.extendedProps.opinionResult !== "수용(종결)" && (
-                          <>
-                            <div>• 검토회의일: <span className="font-semibold">{selectedEvent.extendedProps.demeritReviewMeetingDate || "-"}</span></div>
-                            <div>• 검토결과 통보일: <span className="font-semibold">{selectedEvent.extendedProps.demeritNoticeResultDate || "-"}</span></div>
-                            <div>• 이의제기 마감일: <span className="font-semibold text-rose-700">{selectedEvent.extendedProps.demeritAppealDeadline || "-"}</span></div>
-                            <div>• 이의제기 제출: <span className="font-semibold">{selectedEvent.extendedProps.hasAppealSubmitted ? "제출됨" : "미제출"}</span></div>
-                            
-                            {selectedEvent.extendedProps.hasAppealSubmitted && (
-                              <>
-                                <div>• 외부심의회 개최일: <span className="font-semibold text-purple-700">{selectedEvent.extendedProps.demeritCommitteeDate || "-"}</span></div>
-                                <div>• 최종결과 통보일: <span className="font-semibold">{selectedEvent.extendedProps.demeritFinalResultDate || "-"}</span></div>
-                              </>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </div>
+                    {(selectedEvent.extendedProps.demeritTarget === "감리사" ||
+                      selectedEvent.extendedProps.demeritTarget === "시공사 및 감리사") && (
+                      <DemeritDisplayCard
+                        title="감리사"
+                        icon={<ShieldCheck size={15} className="text-blue-600" />}
+                        proc={selectedEvent.extendedProps.supervisorDemerit}
+                      />
+                    )}
                   </div>
                 )}
 
+                {/* ⚖️ 행정 소송 진행 현황 카드 */}
                 {selectedEvent.extendedProps.hasLawsuit && (
                   <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl space-y-2.5">
                     <div className="flex items-center justify-between border-b border-indigo-200 pb-2">
@@ -2207,6 +2027,7 @@ export default function Home() {
                   </div>
                 )}
 
+                {/* 과태료 부과 정보 카드 */}
                 {selectedEvent.extendedProps.hasFine && (
                   <div className="bg-purple-50 border border-purple-200 p-3.5 rounded-xl flex items-center justify-between text-xs">
                     <div>
