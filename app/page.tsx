@@ -24,6 +24,9 @@ import {
   AlertTriangle,
   BarChart3,
   Search,
+  CheckSquare,
+  Clock,
+  FileCheck,
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -64,11 +67,24 @@ interface CalendarEvent {
     team: string;
     checkDate: string;
     eventType: string;
-    hasDemerit: boolean;     // 벌점 부과 여부
-    demeritScore: string;     // 벌점 점수
-    hasFine: boolean;        // 과태료 부과 여부
-    fineAmount: string;       // 과태료 금액
-    penaltyReason: string;    // 처분 사유
+    
+    // 행정 처분 (과태료)
+    hasFine: boolean;
+    fineAmount: string;
+    penaltyReason: string;
+
+    // 벌점 행정 절차 세부 데이터
+    hasDemerit: boolean;            // 벌점 부과 여부
+    demeritTarget: string;          // 벌점 대상 (시공사/감리사/전체)
+    demeritItem: string;            // 벌점 항목
+    demeritScore: string;           // 벌점 점수
+    demeritNoticeDate: string;      // 1. 사전통지일
+    demeritOpinionDeadline: string; // 2. 사전통지 의견제출 마감일
+    demeritReviewMeetingDate: string;// 3. 의견제출 검토회의일
+    demeritNoticeResultDate: string;// 4. 검토결과 및 통보일
+    demeritAppealDeadline: string;  // 5. 이의제기 마감일
+    demeritCommitteeDate: string;   // 6. 벌점외부심의회 개최일
+    demeritFinalResultDate: string; // 7. 외부심의 결과 및 통보일
   };
 }
 
@@ -167,11 +183,22 @@ export default function Home() {
     date: new Date().toISOString().split("T")[0],
     address: "",
     notes: "",
-    hasDemerit: false,
-    demeritScore: "",
     hasFine: false,
     fineAmount: "",
     penaltyReason: "",
+
+    // 벌점 프로세스 초기값
+    hasDemerit: false,
+    demeritTarget: "시공사",
+    demeritItem: "",
+    demeritScore: "",
+    demeritNoticeDate: "",
+    demeritOpinionDeadline: "",
+    demeritReviewMeetingDate: "",
+    demeritNoticeResultDate: "",
+    demeritAppealDeadline: "",
+    demeritCommitteeDate: "",
+    demeritFinalResultDate: "",
   });
 
   // 벌점/과태료 통계 모달 & 기간별 필터
@@ -224,11 +251,22 @@ export default function Home() {
               team: item.team || "기타일정",
               checkDate: item.start_date || "",
               eventType: item.order_type || "meeting",
-              hasDemerit: !!item.has_demerit,
-              demeritScore: item.demerit_score || "",
+              
               hasFine: !!item.has_fine,
               fineAmount: item.fine_amount || "",
               penaltyReason: item.penalty_reason || "",
+
+              hasDemerit: !!item.has_demerit,
+              demeritTarget: item.demerit_target || "시공사",
+              demeritItem: item.demerit_item || "",
+              demeritScore: item.demerit_score || "",
+              demeritNoticeDate: item.demerit_notice_date || "",
+              demeritOpinionDeadline: item.demerit_opinion_deadline || "",
+              demeritReviewMeetingDate: item.demerit_review_meeting_date || "",
+              demeritNoticeResultDate: item.demerit_notice_result_date || "",
+              demeritAppealDeadline: item.demerit_appeal_deadline || "",
+              demeritCommitteeDate: item.demerit_committee_date || "",
+              demeritFinalResultDate: item.demerit_final_result_date || "",
             },
           };
         });
@@ -299,11 +337,21 @@ export default function Home() {
         team: addForm.category,
         checkDate: addForm.date,
         eventType: "custom",
-        hasDemerit: addForm.hasDemerit,
-        demeritScore: addForm.demeritScore,
         hasFine: addForm.hasFine,
         fineAmount: addForm.fineAmount,
         penaltyReason: addForm.penaltyReason,
+
+        hasDemerit: addForm.hasDemerit,
+        demeritTarget: addForm.demeritTarget,
+        demeritItem: addForm.demeritItem,
+        demeritScore: addForm.demeritScore,
+        demeritNoticeDate: addForm.demeritNoticeDate,
+        demeritOpinionDeadline: addForm.demeritOpinionDeadline,
+        demeritReviewMeetingDate: addForm.demeritReviewMeetingDate,
+        demeritNoticeResultDate: addForm.demeritNoticeResultDate,
+        demeritAppealDeadline: addForm.demeritAppealDeadline,
+        demeritCommitteeDate: addForm.demeritCommitteeDate,
+        demeritFinalResultDate: addForm.demeritFinalResultDate,
       },
     };
 
@@ -325,11 +373,21 @@ export default function Home() {
             address: addForm.address,
             notes: addForm.notes,
             order_type: "custom",
-            has_demerit: addForm.hasDemerit,
-            demerit_score: addForm.demeritScore,
             has_fine: addForm.hasFine,
             fine_amount: addForm.fineAmount,
             penalty_reason: addForm.penaltyReason,
+
+            has_demerit: addForm.hasDemerit,
+            demerit_target: addForm.demeritTarget,
+            demerit_item: addForm.demeritItem,
+            demerit_score: addForm.demeritScore,
+            demerit_notice_date: addForm.demeritNoticeDate,
+            demerit_opinion_deadline: addForm.demeritOpinionDeadline,
+            demerit_review_meeting_date: addForm.demeritReviewMeetingDate,
+            demerit_notice_result_date: addForm.demeritNoticeResultDate,
+            demerit_appeal_deadline: addForm.demeritAppealDeadline,
+            demerit_committee_date: addForm.demeritCommitteeDate,
+            demerit_final_result_date: addForm.demeritFinalResultDate,
           },
         ]);
         await fetchEvents();
@@ -339,18 +397,6 @@ export default function Home() {
     }
 
     setIsAddModalOpen(false);
-    setAddForm({
-      category: "기타일정",
-      title: "",
-      date: new Date().toISOString().split("T")[0],
-      address: "",
-      notes: "",
-      hasDemerit: false,
-      demeritScore: "",
-      hasFine: false,
-      fineAmount: "",
-      penaltyReason: "",
-    });
     alert("새 일정이 추가되었습니다!");
   };
 
@@ -511,11 +557,20 @@ export default function Home() {
               team,
               checkDate,
               eventType: "inspection",
-              hasDemerit: false,
-              demeritScore: "",
               hasFine: false,
               fineAmount: "",
               penaltyReason: "",
+              hasDemerit: false,
+              demeritTarget: "시공사",
+              demeritItem: "",
+              demeritScore: "",
+              demeritNoticeDate: "",
+              demeritOpinionDeadline: "",
+              demeritReviewMeetingDate: "",
+              demeritNoticeResultDate: "",
+              demeritAppealDeadline: "",
+              demeritCommitteeDate: "",
+              demeritFinalResultDate: "",
             },
           };
 
@@ -543,10 +598,6 @@ export default function Home() {
             agent_phone: agentPhone,
             agent_email: agentEmail,
             has_demerit: false,
-            demerit_score: "",
-            has_fine: false,
-            fine_amount: "",
-            penalty_reason: "",
           });
         }
 
@@ -603,11 +654,22 @@ export default function Home() {
         team: props.team || "기타일정",
         checkDate: evt.startStr || "",
         eventType: props.eventType || "inspection",
-        hasDemerit: !!props.hasDemerit,
-        demeritScore: props.demeritScore || "",
+        
         hasFine: !!props.hasFine,
         fineAmount: props.fineAmount || "",
         penaltyReason: props.penaltyReason || "",
+
+        hasDemerit: !!props.hasDemerit,
+        demeritTarget: props.demeritTarget || "시공사",
+        demeritItem: props.demeritItem || "",
+        demeritScore: props.demeritScore || "",
+        demeritNoticeDate: props.demeritNoticeDate || "",
+        demeritOpinionDeadline: props.demeritOpinionDeadline || "",
+        demeritReviewMeetingDate: props.demeritReviewMeetingDate || "",
+        demeritNoticeResultDate: props.demeritNoticeResultDate || "",
+        demeritAppealDeadline: props.demeritAppealDeadline || "",
+        demeritCommitteeDate: props.demeritCommitteeDate || "",
+        demeritFinalResultDate: props.demeritFinalResultDate || "",
       },
     };
 
@@ -669,11 +731,21 @@ export default function Home() {
               agent_phone: editForm.agentPhone,
               agent_email: editForm.agentEmail,
               notes: editForm.progressStatus,
-              has_demerit: editForm.hasDemerit,
-              demerit_score: editForm.demeritScore,
               has_fine: editForm.hasFine,
               fine_amount: editForm.fineAmount,
               penalty_reason: editForm.penaltyReason,
+
+              has_demerit: editForm.hasDemerit,
+              demerit_target: editForm.demeritTarget,
+              demerit_item: editForm.demeritItem,
+              demerit_score: editForm.demeritScore,
+              demerit_notice_date: editForm.demeritNoticeDate,
+              demerit_opinion_deadline: editForm.demeritOpinionDeadline,
+              demerit_review_meeting_date: editForm.demeritReviewMeetingDate,
+              demerit_notice_result_date: editForm.demeritNoticeResultDate,
+              demerit_appeal_deadline: editForm.demeritAppealDeadline,
+              demerit_committee_date: editForm.demeritCommitteeDate,
+              demerit_final_result_date: editForm.demeritFinalResultDate,
             })
             .eq("id", Number(selectedEvent.id));
         }
@@ -685,12 +757,10 @@ export default function Home() {
     alert("수정사항이 저장되었습니다.");
   };
 
-  // 전체 처분 대상 목록
   const penaltyEvents = events.filter(
     (e) => e.extendedProps.hasDemerit || e.extendedProps.hasFine
   );
 
-  // 기간 필터링이 적용된 처분 대상 목록
   const periodFilteredPenaltyEvents = penaltyEvents.filter((e) => {
     if (!e.start) return false;
     const [y, m] = e.start.split("-");
@@ -699,17 +769,16 @@ export default function Home() {
     return true;
   });
 
-  // 검색어가 적용된 최종 목록
   const finalTableEvents = periodFilteredPenaltyEvents.filter((e) => {
     const q = statsSearchQuery.toLowerCase();
     return (
       e.extendedProps.projectName.toLowerCase().includes(q) ||
       e.extendedProps.builder.toLowerCase().includes(q) ||
-      e.extendedProps.penaltyReason.toLowerCase().includes(q)
+      e.extendedProps.penaltyReason.toLowerCase().includes(q) ||
+      e.extendedProps.demeritItem.toLowerCase().includes(q)
     );
   });
 
-  // 건수 집계 (벌점 부과 현장 수 / 과태료 부과 현장 수)
   const totalDemeritSitesCount = periodFilteredPenaltyEvents.filter(
     (e) => e.extendedProps.hasDemerit
   ).length;
@@ -792,7 +861,6 @@ export default function Home() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {/* 벌점/과태료 통계 모달 버튼 */}
             <button
               onClick={() => setIsStatsModalOpen(true)}
               className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white px-3.5 py-2.5 rounded-xl font-semibold text-xs transition shadow-sm"
@@ -946,11 +1014,9 @@ export default function Home() {
               </button>
             </div>
 
-            {/* 📅 기간별 필터 (년별 / 월별 선택) */}
             <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3">
               <span className="text-xs font-bold text-slate-700">통계 기간 선택:</span>
               <div className="flex items-center gap-2 text-xs">
-                {/* 연도 선택 */}
                 <select
                   value={statsYearFilter}
                   onChange={(e) => setStatsYearFilter(e.target.value)}
@@ -962,7 +1028,6 @@ export default function Home() {
                   <option value="2027">2027년</option>
                 </select>
 
-                {/* 월 선택 */}
                 <select
                   value={statsMonthFilter}
                   onChange={(e) => setStatsMonthFilter(e.target.value)}
@@ -985,7 +1050,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* 통계 요약 카드 2종 (벌점 부과 현장 수 / 과태료 부과 현장 수) */}
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl text-center">
                 <span className="text-xs font-bold text-rose-700 block">총 벌점 부과 현장</span>
@@ -1001,26 +1065,24 @@ export default function Home() {
               </div>
             </div>
 
-            {/* 처분 현장 검색바 */}
             <div className="relative">
               <Search size={16} className="absolute left-3 top-3 text-slate-400" />
               <input
                 type="text"
-                placeholder="공사명, 시공사, 처분 사유 검색..."
+                placeholder="공사명, 시공사, 처분 사유, 벌점 항목 검색..."
                 value={statsSearchQuery}
                 onChange={(e) => setStatsSearchQuery(e.target.value)}
                 className="w-full border border-slate-300 rounded-xl pl-9 pr-3 py-2 text-xs outline-none focus:border-rose-500"
               />
             </div>
 
-            {/* 처분 현장 목록 테이블 */}
             <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
               <table className="w-full text-left border-collapse">
                 <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-semibold">
                   <tr>
                     <th className="p-2.5">점검일자</th>
                     <th className="p-2.5">공사명 / 현장</th>
-                    <th className="p-2.5">시공사</th>
+                    <th className="p-2.5">대상 / 항목</th>
                     <th className="p-2.5 text-center">처분구분</th>
                     <th className="p-2.5 text-right">벌점/과태료</th>
                   </tr>
@@ -1031,7 +1093,10 @@ export default function Home() {
                       <tr key={e.id} className="hover:bg-slate-50">
                         <td className="p-2.5 text-slate-500 whitespace-nowrap">{e.start}</td>
                         <td className="p-2.5 font-bold text-slate-800">{e.extendedProps.projectName}</td>
-                        <td className="p-2.5 text-slate-600">{e.extendedProps.builder || "-"}</td>
+                        <td className="p-2.5 text-slate-600">
+                          {e.extendedProps.demeritTarget ? `[${e.extendedProps.demeritTarget}] ` : ""}
+                          {e.extendedProps.demeritItem || e.extendedProps.builder || "-"}
+                        </td>
                         <td className="p-2.5 text-center whitespace-nowrap">
                           {e.extendedProps.hasDemerit && (
                             <span className="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded font-bold mr-1">
@@ -1128,7 +1193,7 @@ export default function Home() {
 
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">
-                  개최 날짜 *
+                  점검일 / 개최 날짜 *
                 </label>
                 <input
                   type="date"
@@ -1143,7 +1208,7 @@ export default function Home() {
 
               <div>
                 <label className="font-semibold text-slate-700 block mb-1">
-                  회의 장소 / 장소
+                  장소 / 주소
                 </label>
                 <input
                   type="text"
@@ -1155,13 +1220,14 @@ export default function Home() {
                 />
               </div>
 
-              {/* 벌점 / 과태료 처분 설정 영역 */}
-              <div className="bg-rose-50/70 border border-rose-100 p-3 rounded-xl space-y-2">
-                <span className="font-bold text-rose-900 block mb-1">
-                  행정 처분 설정 (선택)
-                </span>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-1.5 font-semibold text-rose-800">
+              {/* 🚨 벌점 행정 처분 프로세스 상세 입력 영역 */}
+              <div className="bg-rose-50/80 border border-rose-200 p-3.5 rounded-xl space-y-3">
+                <div className="flex items-center justify-between border-b border-rose-200 pb-2">
+                  <span className="font-bold text-rose-900 flex items-center gap-1">
+                    <AlertTriangle size={15} />
+                    벌점 부과 상세 프로세스
+                  </span>
+                  <label className="flex items-center gap-1.5 font-bold text-rose-700">
                     <input
                       type="checkbox"
                       checked={addForm.hasDemerit}
@@ -1170,69 +1236,173 @@ export default function Home() {
                       }
                       className="rounded text-rose-600 focus:ring-rose-500"
                     />
-                    벌점 부과
-                  </label>
-                  <label className="flex items-center gap-1.5 font-semibold text-purple-800">
-                    <input
-                      type="checkbox"
-                      checked={addForm.hasFine}
-                      onChange={(e) =>
-                        setAddForm({ ...addForm, hasFine: e.target.checked })
-                      }
-                      className="rounded text-purple-600 focus:ring-purple-500"
-                    />
-                    과태료 부과
+                    벌점부과 현장 설정
                   </label>
                 </div>
 
                 {addForm.hasDemerit && (
-                  <div>
-                    <label className="font-semibold text-slate-600 block mb-0.5">
-                      벌점 점수 (점)
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="예: 1.5"
-                      value={addForm.demeritScore}
-                      onChange={(e) =>
-                        setAddForm({ ...addForm, demeritScore: e.target.value })
-                      }
-                      className="w-full border p-2 rounded-lg bg-white"
-                    />
+                  <div className="space-y-2.5 pt-1">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="font-semibold text-slate-700 block mb-0.5">벌점 대상</label>
+                        <select
+                          value={addForm.demeritTarget}
+                          onChange={(e) => setAddForm({ ...addForm, demeritTarget: e.target.value })}
+                          className="w-full border p-2 rounded-lg bg-white"
+                        >
+                          <option value="시공사">시공사</option>
+                          <option value="감리사">감리사</option>
+                          <option value="시공사 및 감리사">시공사 및 감리사</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="font-semibold text-slate-700 block mb-0.5">벌점 점수 (점)</label>
+                        <input
+                          type="text"
+                          placeholder="예: 1.5"
+                          value={addForm.demeritScore}
+                          onChange={(e) => setAddForm({ ...addForm, demeritScore: e.target.value })}
+                          className="w-full border p-2 rounded-lg bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="font-semibold text-slate-700 block mb-0.5">벌점 항목 (지적 분야)</label>
+                      <input
+                        type="text"
+                        placeholder="예: 안전관리비 정산 부적정"
+                        value={addForm.demeritItem}
+                        onChange={(e) => setAddForm({ ...addForm, demeritItem: e.target.value })}
+                        className="w-full border p-2 rounded-lg bg-white"
+                      />
+                    </div>
+
+                    {/* 7단계 주요 일정 입력 */}
+                    <div className="space-y-1.5 pt-1 border-t border-rose-200/60">
+                      <span className="font-bold text-rose-800 text-[11px] block">🗓️ 행정 절차 세부 일정 관리</span>
+                      
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[11px] text-slate-600 block">1. 사전통지일</label>
+                          <input
+                            type="date"
+                            value={addForm.demeritNoticeDate}
+                            onChange={(e) => setAddForm({ ...addForm, demeritNoticeDate: e.target.value })}
+                            className="w-full border p-1.5 rounded-lg bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-slate-600 block">2. 의견제출 마감일</label>
+                          <input
+                            type="date"
+                            value={addForm.demeritOpinionDeadline}
+                            onChange={(e) => setAddForm({ ...addForm, demeritOpinionDeadline: e.target.value })}
+                            className="w-full border p-1.5 rounded-lg bg-white"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[11px] text-slate-600 block">3. 의견제출 검토회의일</label>
+                          <input
+                            type="date"
+                            value={addForm.demeritReviewMeetingDate}
+                            onChange={(e) => setAddForm({ ...addForm, demeritReviewMeetingDate: e.target.value })}
+                            className="w-full border p-1.5 rounded-lg bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-slate-600 block">4. 검토결과 및 통보일</label>
+                          <input
+                            type="date"
+                            value={addForm.demeritNoticeResultDate}
+                            onChange={(e) => setAddForm({ ...addForm, demeritNoticeResultDate: e.target.value })}
+                            className="w-full border p-1.5 rounded-lg bg-white"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[11px] text-slate-600 block">5. 이의제기 마감일</label>
+                          <input
+                            type="date"
+                            value={addForm.demeritAppealDeadline}
+                            onChange={(e) => setAddForm({ ...addForm, demeritAppealDeadline: e.target.value })}
+                            className="w-full border p-1.5 rounded-lg bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-slate-600 block">6. 외부심의회 개최일</label>
+                          <input
+                            type="date"
+                            value={addForm.demeritCommitteeDate}
+                            onChange={(e) => setAddForm({ ...addForm, demeritCommitteeDate: e.target.value })}
+                            className="w-full border p-1.5 rounded-lg bg-white"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] text-slate-600 block">7. 외부심의 결과 및 통보일</label>
+                        <input
+                          type="date"
+                          value={addForm.demeritFinalResultDate}
+                          onChange={(e) => setAddForm({ ...addForm, demeritFinalResultDate: e.target.value })}
+                          className="w-full border p-1.5 rounded-lg bg-white"
+                        />
+                      </div>
+                    </div>
                   </div>
                 )}
+              </div>
+
+              {/* 과태료 부과 서브 설정 */}
+              <div className="bg-purple-50/80 border border-purple-200 p-3 rounded-xl space-y-2">
+                <label className="flex items-center gap-1.5 font-bold text-purple-900">
+                  <input
+                    type="checkbox"
+                    checked={addForm.hasFine}
+                    onChange={(e) =>
+                      setAddForm({ ...addForm, hasFine: e.target.checked })
+                    }
+                    className="rounded text-purple-600 focus:ring-purple-500"
+                  />
+                  과태료 부과 설정
+                </label>
 
                 {addForm.hasFine && (
-                  <div>
-                    <label className="font-semibold text-slate-600 block mb-0.5">
-                      과태료 금액 (만원)
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="예: 300"
-                      value={addForm.fineAmount}
-                      onChange={(e) =>
-                        setAddForm({ ...addForm, fineAmount: e.target.value })
-                      }
-                      className="w-full border p-2 rounded-lg bg-white"
-                    />
-                  </div>
-                )}
-
-                {(addForm.hasDemerit || addForm.hasFine) && (
-                  <div>
-                    <label className="font-semibold text-slate-600 block mb-0.5">
-                      처분 사유 / 지적 내용
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="예: 안전관리비 정산 부적정"
-                      value={addForm.penaltyReason}
-                      onChange={(e) =>
-                        setAddForm({ ...addForm, penaltyReason: e.target.value })
-                      }
-                      className="w-full border p-2 rounded-lg bg-white"
-                    />
+                  <div className="space-y-2 pt-1">
+                    <div>
+                      <label className="font-semibold text-slate-600 block mb-0.5">
+                        과태료 금액 (만원)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="예: 300"
+                        value={addForm.fineAmount}
+                        onChange={(e) =>
+                          setAddForm({ ...addForm, fineAmount: e.target.value })
+                        }
+                        className="w-full border p-2 rounded-lg bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-semibold text-slate-600 block mb-0.5">
+                        과태료 처분 사유
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="예: 건설기계 조종사 면허 미확인"
+                        value={addForm.penaltyReason}
+                        onChange={(e) =>
+                          setAddForm({ ...addForm, penaltyReason: e.target.value })
+                        }
+                        className="w-full border p-2 rounded-lg bg-white"
+                      />
+                    </div>
                   </div>
                 )}
               </div>
@@ -1287,7 +1457,7 @@ export default function Home() {
                   {editForm.team || selectedEvent.extendedProps.team}
                 </span>
                 <h3 className="text-lg font-bold text-slate-800">
-                  {isEditing ? "일정 정보 수정" : "일정 상세정보"}
+                  {isEditing ? "일정 및 처분정보 수정" : "일정 상세정보"}
                 </h3>
               </div>
               <button
@@ -1304,14 +1474,10 @@ export default function Home() {
             {isEditing ? (
               <div className="space-y-4 text-xs">
                 <div>
-                  <label className="font-semibold text-slate-600 block mb-1">
-                    일정 구분
-                  </label>
+                  <label className="font-semibold text-slate-600 block mb-1">일정 구분</label>
                   <select
                     value={editForm.team}
-                    onChange={(e) =>
-                      setEditForm({ ...editForm, team: e.target.value })
-                    }
+                    onChange={(e) => setEditForm({ ...editForm, team: e.target.value })}
                     className="w-full border p-2 rounded-lg font-semibold"
                   >
                     <option value="기타일정">기타일정</option>
@@ -1327,234 +1493,294 @@ export default function Home() {
                 </div>
 
                 <div>
-                  <label className="font-semibold text-slate-600 block mb-1">
-                    일정명 / 회의 제목
-                  </label>
+                  <label className="font-semibold text-slate-600 block mb-1">일정명 / 회의 제목</label>
                   <input
                     type="text"
                     value={editForm.projectName}
-                    onChange={(e) =>
-                      setEditForm({ ...editForm, projectName: e.target.value })
-                    }
+                    onChange={(e) => setEditForm({ ...editForm, projectName: e.target.value })}
                     className="w-full border p-2 rounded-lg"
                   />
                 </div>
 
                 <div>
-                  <label className="font-semibold text-slate-600 block mb-1">
-                    개최 날짜
-                  </label>
+                  <label className="font-semibold text-slate-600 block mb-1">점검일 / 날짜</label>
                   <input
                     type="date"
                     value={editForm.checkDate}
-                    onChange={(e) =>
-                      setEditForm({ ...editForm, checkDate: e.target.value })
-                    }
+                    onChange={(e) => setEditForm({ ...editForm, checkDate: e.target.value })}
                     className="w-full border p-2 rounded-lg"
                   />
                 </div>
 
                 <div>
-                  <label className="font-semibold text-slate-600 block mb-1">
-                    장소 / 주소
-                  </label>
+                  <label className="font-semibold text-slate-600 block mb-1">장소 / 주소</label>
                   <input
                     type="text"
                     value={editForm.address}
-                    onChange={(e) =>
-                      setEditForm({ ...editForm, address: e.target.value })
-                    }
+                    onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
                     className="w-full border p-2 rounded-lg"
                   />
                 </div>
 
-                {/* 벌점 및 과태료 수정 영역 */}
-                <div className="bg-rose-50/70 border border-rose-100 p-3 rounded-xl space-y-2">
-                  <span className="font-bold text-rose-900 block mb-1">
-                    행정 처분 설정
-                  </span>
-                  <div className="flex gap-4">
-                    <label className="flex items-center gap-1.5 font-semibold text-rose-800">
+                {/* 벌점 상세 프로세스 수정 영역 */}
+                <div className="bg-rose-50/80 border border-rose-200 p-3.5 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between border-b border-rose-200 pb-2">
+                    <span className="font-bold text-rose-900 flex items-center gap-1">
+                      <AlertTriangle size={15} />
+                      벌점 부과 상세 프로세스
+                    </span>
+                    <label className="flex items-center gap-1.5 font-bold text-rose-700">
                       <input
                         type="checkbox"
                         checked={editForm.hasDemerit}
-                        onChange={(e) =>
-                          setEditForm({ ...editForm, hasDemerit: e.target.checked })
-                        }
+                        onChange={(e) => setEditForm({ ...editForm, hasDemerit: e.target.checked })}
                         className="rounded text-rose-600 focus:ring-rose-500"
                       />
-                      벌점 부과
-                    </label>
-                    <label className="flex items-center gap-1.5 font-semibold text-purple-800">
-                      <input
-                        type="checkbox"
-                        checked={editForm.hasFine}
-                        onChange={(e) =>
-                          setEditForm({ ...editForm, hasFine: e.target.checked })
-                        }
-                        className="rounded text-purple-600 focus:ring-purple-500"
-                      />
-                      과태료 부과
+                      벌점부과 현장
                     </label>
                   </div>
 
                   {editForm.hasDemerit && (
-                    <div>
-                      <label className="font-semibold text-slate-600 block mb-0.5">
-                        벌점 점수 (점)
-                      </label>
-                      <input
-                        type="text"
-                        value={editForm.demeritScore || ""}
-                        onChange={(e) =>
-                          setEditForm({ ...editForm, demeritScore: e.target.value })
-                        }
-                        className="w-full border p-2 rounded-lg bg-white"
-                      />
+                    <div className="space-y-2.5 pt-1">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="font-semibold text-slate-700 block mb-0.5">벌점 대상</label>
+                          <select
+                            value={editForm.demeritTarget || "시공사"}
+                            onChange={(e) => setEditForm({ ...editForm, demeritTarget: e.target.value })}
+                            className="w-full border p-2 rounded-lg bg-white"
+                          >
+                            <option value="시공사">시공사</option>
+                            <option value="감리사">감리사</option>
+                            <option value="시공사 및 감리사">시공사 및 감리사</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="font-semibold text-slate-700 block mb-0.5">벌점 점수 (점)</label>
+                          <input
+                            type="text"
+                            value={editForm.demeritScore || ""}
+                            onChange={(e) => setEditForm({ ...editForm, demeritScore: e.target.value })}
+                            className="w-full border p-2 rounded-lg bg-white"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="font-semibold text-slate-700 block mb-0.5">벌점 항목 (지적 분야)</label>
+                        <input
+                          type="text"
+                          value={editForm.demeritItem || ""}
+                          onChange={(e) => setEditForm({ ...editForm, demeritItem: e.target.value })}
+                          className="w-full border p-2 rounded-lg bg-white"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5 pt-1 border-t border-rose-200/60">
+                        <span className="font-bold text-rose-800 text-[11px] block">🗓️ 행정 절차 세부 일정 관리</span>
+                        
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[11px] text-slate-600 block">1. 사전통지일</label>
+                            <input
+                              type="date"
+                              value={editForm.demeritNoticeDate || ""}
+                              onChange={(e) => setEditForm({ ...editForm, demeritNoticeDate: e.target.value })}
+                              className="w-full border p-1.5 rounded-lg bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[11px] text-slate-600 block">2. 의견제출 마감일</label>
+                            <input
+                              type="date"
+                              value={editForm.demeritOpinionDeadline || ""}
+                              onChange={(e) => setEditForm({ ...editForm, demeritOpinionDeadline: e.target.value })}
+                              className="w-full border p-1.5 rounded-lg bg-white"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[11px] text-slate-600 block">3. 의견제출 검토회의일</label>
+                            <input
+                              type="date"
+                              value={editForm.demeritReviewMeetingDate || ""}
+                              onChange={(e) => setEditForm({ ...editForm, demeritReviewMeetingDate: e.target.value })}
+                              className="w-full border p-1.5 rounded-lg bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[11px] text-slate-600 block">4. 검토결과 및 통보일</label>
+                            <input
+                              type="date"
+                              value={editForm.demeritNoticeResultDate || ""}
+                              onChange={(e) => setEditForm({ ...editForm, demeritNoticeResultDate: e.target.value })}
+                              className="w-full border p-1.5 rounded-lg bg-white"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[11px] text-slate-600 block">5. 이의제기 마감일</label>
+                            <input
+                              type="date"
+                              value={editForm.demeritAppealDeadline || ""}
+                              onChange={(e) => setEditForm({ ...editForm, demeritAppealDeadline: e.target.value })}
+                              className="w-full border p-1.5 rounded-lg bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[11px] text-slate-600 block">6. 외부심의회 개최일</label>
+                            <input
+                              type="date"
+                              value={editForm.demeritCommitteeDate || ""}
+                              onChange={(e) => setEditForm({ ...editForm, demeritCommitteeDate: e.target.value })}
+                              className="w-full border p-1.5 rounded-lg bg-white"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] text-slate-600 block">7. 외부심의 결과 및 통보일</label>
+                          <input
+                            type="date"
+                            value={editForm.demeritFinalResultDate || ""}
+                            onChange={(e) => setEditForm({ ...editForm, demeritFinalResultDate: e.target.value })}
+                            className="w-full border p-1.5 rounded-lg bg-white"
+                          />
+                        </div>
+                      </div>
                     </div>
                   )}
+                </div>
+
+                {/* 과태료 수정 영역 */}
+                <div className="bg-purple-50/80 border border-purple-200 p-3 rounded-xl space-y-2">
+                  <label className="flex items-center gap-1.5 font-bold text-purple-900">
+                    <input
+                      type="checkbox"
+                      checked={editForm.hasFine}
+                      onChange={(e) => setEditForm({ ...editForm, hasFine: e.target.checked })}
+                      className="rounded text-purple-600 focus:ring-purple-500"
+                    />
+                    과태료 부과 설정
+                  </label>
 
                   {editForm.hasFine && (
-                    <div>
-                      <label className="font-semibold text-slate-600 block mb-0.5">
-                        과태료 금액 (만원)
-                      </label>
-                      <input
-                        type="text"
-                        value={editForm.fineAmount || ""}
-                        onChange={(e) =>
-                          setEditForm({ ...editForm, fineAmount: e.target.value })
-                        }
-                        className="w-full border p-2 rounded-lg bg-white"
-                      />
-                    </div>
-                  )}
-
-                  {(editForm.hasDemerit || editForm.hasFine) && (
-                    <div>
-                      <label className="font-semibold text-slate-600 block mb-0.5">
-                        처분 사유 / 지적 내용
-                      </label>
-                      <input
-                        type="text"
-                        value={editForm.penaltyReason || ""}
-                        onChange={(e) =>
-                          setEditForm({ ...editForm, penaltyReason: e.target.value })
-                        }
-                        className="w-full border p-2 rounded-lg bg-white"
-                      />
+                    <div className="space-y-2 pt-1">
+                      <div>
+                        <label className="font-semibold text-slate-600 block mb-0.5">과태료 금액 (만원)</label>
+                        <input
+                          type="text"
+                          value={editForm.fineAmount || ""}
+                          onChange={(e) => setEditForm({ ...editForm, fineAmount: e.target.value })}
+                          className="w-full border p-2 rounded-lg bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="font-semibold text-slate-600 block mb-0.5">과태료 처분 사유</label>
+                        <input
+                          type="text"
+                          value={editForm.penaltyReason || ""}
+                          onChange={(e) => setEditForm({ ...editForm, penaltyReason: e.target.value })}
+                          className="w-full border p-2 rounded-lg bg-white"
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
 
                 <div>
-                  <label className="font-semibold text-slate-600 block mb-1">
-                    주요 안건 / 비고 메모
-                  </label>
+                  <label className="font-semibold text-slate-600 block mb-1">주요 안건 / 비고 메모</label>
                   <textarea
                     rows={3}
                     value={editForm.progressStatus}
-                    onChange={(e) =>
-                      setEditForm({
-                        ...editForm,
-                        progressStatus: e.target.value,
-                      })
-                    }
+                    onChange={(e) => setEditForm({ ...editForm, progressStatus: e.target.value })}
                     className="w-full border p-2 rounded-lg"
                   />
                 </div>
               </div>
             ) : (
               <div className="space-y-4 text-sm">
-                {/* 벌점/과태료 배지 안내 */}
-                {(selectedEvent.extendedProps.hasDemerit ||
-                  selectedEvent.extendedProps.hasFine) && (
-                  <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <AlertTriangle className="text-rose-600 shrink-0" size={18} />
-                      <span className="font-bold text-rose-900 text-xs">
-                        행정 처분 부과 현장
+                {/* 🚨 벌점 상세 프로세스 열람 카드 */}
+                {selectedEvent.extendedProps.hasDemerit && (
+                  <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl space-y-3">
+                    <div className="flex items-center justify-between border-b border-rose-200 pb-2">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="text-rose-600 shrink-0" size={18} />
+                        <span className="font-bold text-rose-950 text-xs">벌점 행정 처분 현장</span>
+                      </div>
+                      <span className="bg-rose-600 text-white text-xs font-black px-2.5 py-0.5 rounded-full">
+                        [{selectedEvent.extendedProps.demeritTarget}] {selectedEvent.extendedProps.demeritScore}점
                       </span>
                     </div>
-                    <div className="flex gap-1.5 text-xs font-bold">
-                      {selectedEvent.extendedProps.hasDemerit && (
-                        <span className="bg-rose-600 text-white px-2.5 py-0.5 rounded-full">
-                          벌점 {selectedEvent.extendedProps.demeritScore}점
-                        </span>
-                      )}
-                      {selectedEvent.extendedProps.hasFine && (
-                        <span className="bg-purple-600 text-white px-2.5 py-0.5 rounded-full">
-                          과태료 {selectedEvent.extendedProps.fineAmount}만원
-                        </span>
-                      )}
+
+                    {selectedEvent.extendedProps.demeritItem && (
+                      <div className="text-xs">
+                        <span className="font-semibold text-rose-900 block">지적 및 벌점 항목:</span>
+                        <p className="text-slate-800 font-medium mt-0.5">{selectedEvent.extendedProps.demeritItem}</p>
+                      </div>
+                    )}
+
+                    {/* 타임라인형 일정 보기 */}
+                    <div className="bg-white/80 p-3 rounded-lg border border-rose-100 text-xs space-y-1.5">
+                      <span className="font-bold text-rose-900 block text-[11px] mb-1">📌 행정 처리 단계별 진행 일정:</span>
+                      <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] text-slate-700">
+                        <div>• 점검일: <span className="font-semibold">{selectedEvent.start}</span></div>
+                        <div>• 사전통지일: <span className="font-semibold">{selectedEvent.extendedProps.demeritNoticeDate || "-"}</span></div>
+                        <div>• 의견제출 마감일: <span className="font-semibold text-rose-700">{selectedEvent.extendedProps.demeritOpinionDeadline || "-"}</span></div>
+                        <div>• 검토회의일: <span className="font-semibold">{selectedEvent.extendedProps.demeritReviewMeetingDate || "-"}</span></div>
+                        <div>• 검토결과 통보일: <span className="font-semibold">{selectedEvent.extendedProps.demeritNoticeResultDate || "-"}</span></div>
+                        <div>• 이의제기 마감일: <span className="font-semibold text-rose-700">{selectedEvent.extendedProps.demeritAppealDeadline || "-"}</span></div>
+                        <div>• 외부심의회 개최일: <span className="font-semibold text-purple-700">{selectedEvent.extendedProps.demeritCommitteeDate || "-"}</span></div>
+                        <div>• 최종결과 통보일: <span className="font-semibold">{selectedEvent.extendedProps.demeritFinalResultDate || "-"}</span></div>
+                      </div>
                     </div>
                   </div>
                 )}
 
-                <div className="flex items-start gap-3">
-                  <Building
-                    className="text-blue-500 shrink-0 mt-0.5"
-                    size={18}
-                  />
-                  <div>
-                    <span className="text-xs font-semibold text-slate-400 block">
-                      일정명 / 명칭
+                {/* 과태료 부과 정보 카드 */}
+                {selectedEvent.extendedProps.hasFine && (
+                  <div className="bg-purple-50 border border-purple-200 p-3.5 rounded-xl flex items-center justify-between text-xs">
+                    <div>
+                      <span className="font-bold text-purple-950 block">과태료 부과 현장</span>
+                      <span className="text-slate-600 mt-0.5 block">{selectedEvent.extendedProps.penaltyReason || "과태료 부과 대상"}</span>
+                    </div>
+                    <span className="bg-purple-600 text-white font-black text-xs px-2.5 py-1 rounded-full">
+                      {selectedEvent.extendedProps.fineAmount}만원
                     </span>
-                    <span className="font-bold text-slate-800 text-base">
-                      {selectedEvent.extendedProps.projectName}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <Calendar
-                    className="text-emerald-500 shrink-0 mt-0.5"
-                    size={18}
-                  />
-                  <div>
-                    <span className="text-xs font-semibold text-slate-400 block">
-                      날짜
-                    </span>
-                    <span className="font-bold text-emerald-600">
-                      {selectedEvent.start}
-                    </span>
-                  </div>
-                </div>
-
-                {selectedEvent.extendedProps.penaltyReason && (
-                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
-                    <span className="font-bold text-slate-700 block mb-1">
-                      처분 사유 / 지적 내용
-                    </span>
-                    <p className="text-rose-700 font-semibold">
-                      {selectedEvent.extendedProps.penaltyReason}
-                    </p>
                   </div>
                 )}
+
+                <div className="flex items-start gap-3">
+                  <Building className="text-blue-500 shrink-0 mt-0.5" size={18} />
+                  <div>
+                    <span className="text-xs font-semibold text-slate-400 block">일정명 / 명칭</span>
+                    <span className="font-bold text-slate-800 text-base">{selectedEvent.extendedProps.projectName}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <Calendar className="text-emerald-500 shrink-0 mt-0.5" size={18} />
+                  <div>
+                    <span className="text-xs font-semibold text-slate-400 block">날짜</span>
+                    <span className="font-bold text-emerald-600">{selectedEvent.start}</span>
+                  </div>
+                </div>
 
                 {selectedEvent.extendedProps.address && (
                   <div className="flex items-start gap-3">
-                    <MapPin
-                      className="text-rose-500 shrink-0 mt-0.5"
-                      size={18}
-                    />
+                    <MapPin className="text-rose-500 shrink-0 mt-0.5" size={18} />
                     <div className="w-full">
-                      <span className="text-xs font-semibold text-slate-400 block">
-                        장소 / 주소
-                      </span>
-                      <span className="text-slate-700 block mt-0.5 mb-2 font-medium">
-                        {selectedEvent.extendedProps.address}
-                      </span>
+                      <span className="text-xs font-semibold text-slate-400 block">장소 / 주소</span>
+                      <span className="text-slate-700 block mt-0.5 mb-2 font-medium">{selectedEvent.extendedProps.address}</span>
 
                       <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100">
-                        <span className="text-[11px] font-semibold text-slate-400 mr-1">
-                          길안내:
-                        </span>
-                        
+                        <span className="text-[11px] font-semibold text-slate-400 mr-1">길안내:</span>
                         <a
-                          href={`https://map.kakao.com/link/search/${encodeURIComponent(
-                            selectedEvent.extendedProps.address
-                          )}`}
+                          href={`https://map.kakao.com/link/search/${encodeURIComponent(selectedEvent.extendedProps.address)}`}
                           target="_blank"
                           rel="noreferrer"
                           className="flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg hover:bg-amber-100 transition"
@@ -1562,11 +1788,8 @@ export default function Home() {
                           <Navigation size={11} />
                           카카오맵
                         </a>
-
                         <a
-                          href={`https://map.naver.com/v5/search/${encodeURIComponent(
-                            selectedEvent.extendedProps.address
-                          )}`}
+                          href={`https://map.naver.com/v5/search/${encodeURIComponent(selectedEvent.extendedProps.address)}`}
                           target="_blank"
                           rel="noreferrer"
                           className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg hover:bg-emerald-100 transition"
@@ -1579,38 +1802,26 @@ export default function Home() {
                   </div>
                 )}
 
-                {(selectedEvent.extendedProps.builder ||
-                  selectedEvent.extendedProps.supervisor) && (
+                {(selectedEvent.extendedProps.builder || selectedEvent.extendedProps.supervisor) && (
                   <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
                     {selectedEvent.extendedProps.builder && (
                       <div>
-                        <span className="text-[11px] font-semibold text-slate-400 block">
-                          시공사
-                        </span>
-                        <span className="text-xs font-semibold text-slate-800">
-                          {selectedEvent.extendedProps.builder}
-                        </span>
+                        <span className="text-[11px] font-semibold text-slate-400 block">시공사</span>
+                        <span className="text-xs font-semibold text-slate-800">{selectedEvent.extendedProps.builder}</span>
                       </div>
                     )}
                     {selectedEvent.extendedProps.supervisor && (
                       <div>
-                        <span className="text-[11px] font-semibold text-slate-400 block">
-                          감리사
-                        </span>
-                        <span className="text-xs font-semibold text-slate-800">
-                          {selectedEvent.extendedProps.supervisor}
-                        </span>
+                        <span className="text-[11px] font-semibold text-slate-400 block">감리사</span>
+                        <span className="text-xs font-semibold text-slate-800">{selectedEvent.extendedProps.supervisor}</span>
                       </div>
                     )}
                   </div>
                 )}
 
-                {(selectedEvent.extendedProps.agentName ||
-                  selectedEvent.extendedProps.agentPhone) && (
+                {(selectedEvent.extendedProps.agentName || selectedEvent.extendedProps.agentPhone) && (
                   <div className="space-y-1.5 bg-blue-50/60 p-3 rounded-xl border border-blue-100">
-                    <span className="text-[11px] font-bold text-blue-700 block">
-                      담당자 / 연락처
-                    </span>
+                    <span className="text-[11px] font-bold text-blue-700 block">담당자 / 연락처</span>
                     <div className="flex items-center gap-4 text-xs text-slate-700">
                       {selectedEvent.extendedProps.agentName && (
                         <span className="flex items-center gap-1 font-semibold">
@@ -1620,10 +1831,7 @@ export default function Home() {
                       )}
                       {selectedEvent.extendedProps.agentPhone && (
                         <a
-                          href={`tel:${selectedEvent.extendedProps.agentPhone.replace(
-                            /[^\d]/g,
-                            ""
-                          )}`}
+                          href={`tel:${selectedEvent.extendedProps.agentPhone.replace(/[^\d]/g, "")}`}
                           className="flex items-center gap-1 font-bold text-blue-600 underline hover:text-blue-800 transition"
                           title="바로 전화걸기"
                         >
@@ -1637,14 +1845,9 @@ export default function Home() {
 
                 {selectedEvent.extendedProps.progressStatus && (
                   <div className="flex items-start gap-3">
-                    <FileText
-                      className="text-amber-500 shrink-0 mt-0.5"
-                      size={18}
-                    />
+                    <FileText className="text-amber-500 shrink-0 mt-0.5" size={18} />
                     <div className="w-full">
-                      <span className="text-xs font-semibold text-slate-400 block">
-                        주요 내용 / 비고 메모
-                      </span>
+                      <span className="text-xs font-semibold text-slate-400 block">주요 내용 / 비고 메모</span>
                       <p className="text-slate-700 whitespace-pre-wrap bg-slate-50 p-3 rounded-lg border border-slate-200 mt-1 text-xs leading-relaxed">
                         {selectedEvent.extendedProps.progressStatus}
                       </p>
