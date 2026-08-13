@@ -1421,7 +1421,11 @@ export default function Home() {
     return true;
   });
 
-  const finalDemeritTable = periodDemeritEvents.filter((e) => {
+  // 🔥 점검일자 기준 오름차순(과거 -> 최근 날짜순) 자동 정렬 적용
+  const sortedDemeritEvents = [...periodDemeritEvents].sort((a, b) => (a.start > b.start ? 1 : -1));
+  const sortedFineEvents = [...periodFineEvents].sort((a, b) => (a.start > b.start ? 1 : -1));
+
+  const finalDemeritTable = sortedDemeritEvents.filter((e) => {
     const q = statsSearchQuery.toLowerCase();
     const builderStr = JSON.stringify(e.extendedProps.builderDemerit?.items || []).toLowerCase();
     const supervisorStr = JSON.stringify(e.extendedProps.supervisorDemerit?.items || []).toLowerCase();
@@ -1436,7 +1440,7 @@ export default function Home() {
     );
   });
 
-  const finalFineTable = periodFineEvents.filter((e) => {
+  const finalFineTable = sortedFineEvents.filter((e) => {
     const q = statsSearchQuery.toLowerCase();
     return (
       e.extendedProps.projectName.toLowerCase().includes(q) ||
@@ -1695,7 +1699,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 📊 상세 처분 현황 대시보드 모달 */}
+      {/* 📊 상세 처분 현황 대시보드 모달 (날짜순 정렬) */}
       {isStatsModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-slate-100 space-y-5 max-h-[90vh] overflow-y-auto">
@@ -1798,7 +1802,7 @@ export default function Home() {
                 <table className="w-full text-left border-collapse min-w-[700px]">
                   <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
                     <tr>
-                      <th className="p-2.5 whitespace-nowrap">점검일</th>
+                      <th className="p-2.5 whitespace-nowrap">점검일 (날짜순)</th>
                       <th className="p-2.5">공사명 / 현장</th>
                       <th className="p-2.5">처분대상 & 최종통보일</th>
                       <th className="p-2.5">세부 지적항목 및 기준벌점</th>
@@ -1901,7 +1905,7 @@ export default function Home() {
                 <table className="w-full text-left border-collapse min-w-[600px]">
                   <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
                     <tr>
-                      <th className="p-2.5 whitespace-nowrap">점검일</th>
+                      <th className="p-2.5 whitespace-nowrap">점검일 (날짜순)</th>
                       <th className="p-2.5">공사명 / 현장</th>
                       <th className="p-2.5">시공사 / 감리사</th>
                       <th className="p-2.5">과태료 부과 처분 사유</th>
