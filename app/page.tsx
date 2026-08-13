@@ -204,6 +204,246 @@ const defaultDemeritProc = (): DemeritProc => ({
   finalResultDate: "",
 });
 
+// 포커스 튕김 방지를 위해 메커니즘을 밖으로 완전히 분리한 서브 컴포넌트
+function DemeritProcInputs({
+  title,
+  icon,
+  proc,
+  onChange,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  proc: DemeritProc;
+  onChange: (updated: DemeritProc) => void;
+}) {
+  return (
+    <div className="bg-white p-3 rounded-xl border border-rose-200 space-y-2.5 shadow-sm">
+      <span className="font-bold text-rose-900 text-xs flex items-center gap-1 border-b border-rose-100 pb-1.5">
+        {icon}
+        {title} 벌점 세부 절차
+      </span>
+
+      <div>
+        <label className="font-semibold text-slate-700 block mb-0.5">
+          벌점 항목 (지적 분야 - 여러 항목 가능)
+        </label>
+        <textarea
+          rows={3}
+          placeholder={`1. 정기안전점검 미실시\n2. 품질시험계획 수립 미흡`}
+          value={proc.item}
+          onChange={(e) => onChange({ ...proc, item: e.target.value })}
+          className="w-full border p-2 rounded-lg bg-slate-50 text-xs leading-relaxed outline-none focus:border-rose-400"
+        />
+      </div>
+
+      <div>
+        <label className="font-semibold text-slate-700 block mb-0.5">벌점 점수 (점)</label>
+        <input
+          type="text"
+          placeholder="예: 3"
+          value={proc.score}
+          onChange={(e) => onChange({ ...proc, score: e.target.value })}
+          className="w-full border p-1.5 rounded-lg bg-slate-50 text-xs outline-none focus:border-rose-400"
+        />
+      </div>
+
+      <div className="space-y-2 pt-1 border-t border-rose-100">
+        <span className="font-bold text-rose-800 text-[11px] block">1단계: 사전통지 및 의견제출 결과</span>
+        
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[11px] text-slate-600 block">사전통지일</label>
+            <input
+              type="date"
+              value={proc.noticeDate}
+              onChange={(e) => onChange({ ...proc, noticeDate: e.target.value })}
+              className="w-full border p-1 rounded-lg bg-slate-50 text-xs"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] text-slate-600 block">의견제출 마감일</label>
+            <input
+              type="date"
+              value={proc.opinionDeadline}
+              onChange={(e) => onChange({ ...proc, opinionDeadline: e.target.value })}
+              className="w-full border p-1 rounded-lg bg-slate-50 text-xs"
+            />
+          </div>
+        </div>
+
+        <div className="bg-rose-50/50 p-2 rounded-lg border border-rose-100 space-y-1">
+          <label className="font-bold text-rose-900 block text-[11px]">의견제출 검토 결과 *</label>
+          <select
+            value={proc.opinionResult}
+            onChange={(e) => onChange({ ...proc, opinionResult: e.target.value })}
+            className="w-full border p-1 rounded-lg bg-white font-semibold text-xs"
+          >
+            <option value="미제출">의견 미제출 (진행 계속)</option>
+            <option value="불수용">의견 제출 - 불수용 (진행 계속)</option>
+            <option value="수용(종결)">의견 제출 - 수용 (벌점부과 철회/종결)</option>
+          </select>
+        </div>
+
+        {proc.opinionResult === "수용(종결)" ? (
+          <div className="bg-emerald-50 text-emerald-800 p-2 rounded-lg border border-emerald-200 text-[11px] font-bold flex items-center gap-1">
+            <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />
+            의견이 수용되어 {title} 벌점 절차가 종결되었습니다.
+          </div>
+        ) : (
+          <React.Fragment>
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <div>
+                <label className="text-[11px] text-slate-600 block">의견검토회의일</label>
+                <input
+                  type="date"
+                  value={proc.reviewMeetingDate}
+                  onChange={(e) => onChange({ ...proc, reviewMeetingDate: e.target.value })}
+                  className="w-full border p-1 rounded-lg bg-slate-50 text-xs"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-slate-600 block">검토결과 통보일</label>
+                <input
+                  type="date"
+                  value={proc.noticeResultDate}
+                  onChange={(e) => onChange({ ...proc, noticeResultDate: e.target.value })}
+                  className="w-full border p-1 rounded-lg bg-slate-50 text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5 pt-2 border-t border-rose-100">
+              <span className="font-bold text-rose-800 text-[11px] block">2단계: 이의제기 및 외부심의회</span>
+              
+              <div>
+                <label className="text-[11px] text-slate-600 block mb-0.5">이의제기 마감일</label>
+                <input
+                  type="date"
+                  value={proc.appealDeadline}
+                  onChange={(e) => onChange({ ...proc, appealDeadline: e.target.value })}
+                  className="w-full border p-1 rounded-lg bg-slate-50 text-xs"
+                />
+              </div>
+
+              <div className="bg-rose-50/50 p-2 rounded-lg border border-rose-100 space-y-1">
+                <label className="font-bold text-rose-900 block text-[11px]">이의제기 제출 여부 *</label>
+                <div className="flex gap-3 text-xs">
+                  <label className="flex items-center gap-1 font-semibold text-slate-700 cursor-pointer">
+                    <input
+                      type="radio"
+                      name={`appeal-${title}`}
+                      checked={!proc.hasAppealSubmitted}
+                      onChange={() => onChange({ ...proc, hasAppealSubmitted: false })}
+                    />
+                    미제출 (벌점 확정)
+                  </label>
+                  <label className="flex items-center gap-1 font-semibold text-purple-800 cursor-pointer">
+                    <input
+                      type="radio"
+                      name={`appeal-${title}`}
+                      checked={proc.hasAppealSubmitted}
+                      onChange={() => onChange({ ...proc, hasAppealSubmitted: true })}
+                    />
+                    이의제기 (외부심의)
+                  </label>
+                </div>
+              </div>
+
+              {proc.hasAppealSubmitted && (
+                <div className="grid grid-cols-2 gap-2 bg-purple-50/60 p-2 rounded-lg border border-purple-100">
+                  <div>
+                    <label className="text-[11px] text-slate-600 block">외부심의회 개최일</label>
+                    <input
+                      type="date"
+                      value={proc.committeeDate}
+                      onChange={(e) => onChange({ ...proc, committeeDate: e.target.value })}
+                      className="w-full border p-1 rounded-lg bg-white text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-slate-600 block">최종결과 통보일</label>
+                    <input
+                      type="date"
+                      value={proc.finalResultDate}
+                      onChange={(e) => onChange({ ...proc, finalResultDate: e.target.value })}
+                      className="w-full border p-1 rounded-lg bg-white text-xs"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </React.Fragment>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DemeritDisplayCard({ title, icon, proc }: { title: string; icon: React.ReactNode; proc: DemeritProc }) {
+  if (!proc || (!proc.item && !proc.score)) return null;
+
+  return (
+    <div className="bg-white/90 p-3 rounded-xl border border-rose-200 text-xs space-y-2">
+      <div className="flex items-center justify-between border-b border-rose-100 pb-1.5">
+        <span className="font-bold text-rose-950 flex items-center gap-1 text-xs">
+          {icon}
+          {title} 벌점 처분
+        </span>
+        <span className="bg-rose-600 text-white font-black text-[11px] px-2 py-0.5 rounded-full">
+          {proc.score || "0"}점
+        </span>
+      </div>
+
+      <div className="flex flex-wrap gap-1">
+        {proc.opinionResult === "수용(종결)" ? (
+          <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded">
+            🟢 의견제출 수용 (철회/종결)
+          </span>
+        ) : !proc.hasAppealSubmitted ? (
+          <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded">
+            🟠 이의제기 미제출 (벌점 확정)
+          </span>
+        ) : (
+          <span className="bg-purple-100 text-purple-800 text-[10px] font-bold px-2 py-0.5 rounded">
+            🟣 외부심의 진행 중
+          </span>
+        )}
+      </div>
+
+      {proc.item && (
+        <div>
+          <span className="font-semibold text-rose-900 block text-[11px]">지적 및 벌점 항목:</span>
+          <p className="text-slate-800 font-medium whitespace-pre-wrap mt-0.5">{proc.item}</p>
+        </div>
+      )}
+
+      <div className="bg-rose-50/50 p-2.5 rounded-lg border border-rose-100 text-[11px] space-y-1">
+        <span className="font-bold text-rose-900 block mb-0.5">📌 진행 일정:</span>
+        <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-slate-700">
+          <div>• 사전통지일: <span className="font-semibold">{proc.noticeDate || "-"}</span></div>
+          <div>• 의견마감일: <span className="font-semibold text-rose-700">{proc.opinionDeadline || "-"}</span></div>
+          <div>• 의견검토결과: <span className="font-bold text-rose-800">{proc.opinionResult || "미제출"}</span></div>
+          
+          {proc.opinionResult !== "수용(종결)" && (
+            <React.Fragment>
+              <div>• 검토회의일: <span className="font-semibold">{proc.reviewMeetingDate || "-"}</span></div>
+              <div>• 결과통보일: <span className="font-semibold">{proc.noticeResultDate || "-"}</span></div>
+              <div>• 이의마감일: <span className="font-semibold text-rose-700">{proc.appealDeadline || "-"}</span></div>
+              <div>• 이의제기여부: <span className="font-semibold">{proc.hasAppealSubmitted ? "제출됨" : "미제출"}</span></div>
+              {proc.hasAppealSubmitted && (
+                <React.Fragment>
+                  <div>• 외부심의일: <span className="font-semibold text-purple-700">{proc.committeeDate || "-"}</span></div>
+                  <div>• 최종통보일: <span className="font-semibold">{proc.finalResultDate || "-"}</span></div>
+                </React.Fragment>
+              )}
+            </React.Fragment>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState("");
@@ -989,241 +1229,6 @@ export default function Home() {
     );
   }
 
-  const DemeritProcInputs = ({
-    title,
-    icon,
-    proc,
-    onChange,
-  }: {
-    title: string;
-    icon: React.ReactNode;
-    proc: DemeritProc;
-    onChange: (updated: DemeritProc) => void;
-  }) => (
-    <div className="bg-white p-3 rounded-xl border border-rose-200 space-y-2.5 shadow-sm">
-      <span className="font-bold text-rose-900 text-xs flex items-center gap-1 border-b border-rose-100 pb-1.5">
-        {icon}
-        {title} 벌점 세부 절차
-      </span>
-
-      <div>
-        <label className="font-semibold text-slate-700 block mb-0.5">벌점 항목 (지적 분야 - 여러 항목 가능)</label>
-        <textarea
-          rows={2}
-          placeholder="예: 1. 품질시험계획 다르게 실시&#10;2. 안전관리비 정산 부적정"
-          value={proc.item}
-          onChange={(e) => onChange({ ...proc, item: e.target.value })}
-          className="w-full border p-2 rounded-lg bg-slate-50 text-xs"
-        />
-      </div>
-
-      <div>
-        <label className="font-semibold text-slate-700 block mb-0.5">벌점 점수 (점)</label>
-        <input
-          type="text"
-          placeholder="예: 1.5"
-          value={proc.score}
-          onChange={(e) => onChange({ ...proc, score: e.target.value })}
-          className="w-full border p-1.5 rounded-lg bg-slate-50 text-xs"
-        />
-      </div>
-
-      <div className="space-y-2 pt-1 border-t border-rose-100">
-        <span className="font-bold text-rose-800 text-[11px] block">1단계: 사전통지 및 의견제출 결과</span>
-        
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="text-[11px] text-slate-600 block">사전통지일</label>
-            <input
-              type="date"
-              value={proc.noticeDate}
-              onChange={(e) => onChange({ ...proc, noticeDate: e.target.value })}
-              className="w-full border p-1 rounded-lg bg-slate-50 text-xs"
-            />
-          </div>
-          <div>
-            <label className="text-[11px] text-slate-600 block">의견제출 마감일</label>
-            <input
-              type="date"
-              value={proc.opinionDeadline}
-              onChange={(e) => onChange({ ...proc, opinionDeadline: e.target.value })}
-              className="w-full border p-1 rounded-lg bg-slate-50 text-xs"
-            />
-          </div>
-        </div>
-
-        <div className="bg-rose-50/50 p-2 rounded-lg border border-rose-100 space-y-1">
-          <label className="font-bold text-rose-900 block text-[11px]">의견제출 검토 결과 *</label>
-          <select
-            value={proc.opinionResult}
-            onChange={(e) => onChange({ ...proc, opinionResult: e.target.value })}
-            className="w-full border p-1 rounded-lg bg-white font-semibold text-xs"
-          >
-            <option value="미제출">의견 미제출 (진행 계속)</option>
-            <option value="불수용">의견 제출 - 불수용 (진행 계속)</option>
-            <option value="수용(종결)">의견 제출 - 수용 (벌점부과 철회/종결)</option>
-          </select>
-        </div>
-
-        {proc.opinionResult === "수용(종결)" ? (
-          <div className="bg-emerald-50 text-emerald-800 p-2 rounded-lg border border-emerald-200 text-[11px] font-bold flex items-center gap-1">
-            <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />
-            의견이 수용되어 {title} 벌점 절차가 종결되었습니다.
-          </div>
-        ) : (
-          <React.Fragment>
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <div>
-                <label className="text-[11px] text-slate-600 block">의견검토회의일</label>
-                <input
-                  type="date"
-                  value={proc.reviewMeetingDate}
-                  onChange={(e) => onChange({ ...proc, reviewMeetingDate: e.target.value })}
-                  className="w-full border p-1 rounded-lg bg-slate-50 text-xs"
-                />
-              </div>
-              <div>
-                <label className="text-[11px] text-slate-600 block">검토결과 통보일</label>
-                <input
-                  type="date"
-                  value={proc.noticeResultDate}
-                  onChange={(e) => onChange({ ...proc, noticeResultDate: e.target.value })}
-                  className="w-full border p-1 rounded-lg bg-slate-50 text-xs"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5 pt-2 border-t border-rose-100">
-              <span className="font-bold text-rose-800 text-[11px] block">2단계: 이의제기 및 외부심의회</span>
-              
-              <div>
-                <label className="text-[11px] text-slate-600 block mb-0.5">이의제기 마감일</label>
-                <input
-                  type="date"
-                  value={proc.appealDeadline}
-                  onChange={(e) => onChange({ ...proc, appealDeadline: e.target.value })}
-                  className="w-full border p-1 rounded-lg bg-slate-50 text-xs"
-                />
-              </div>
-
-              <div className="bg-rose-50/50 p-2 rounded-lg border border-rose-100 space-y-1">
-                <label className="font-bold text-rose-900 block text-[11px]">이의제기 제출 여부 *</label>
-                <div className="flex gap-3 text-xs">
-                  <label className="flex items-center gap-1 font-semibold text-slate-700">
-                    <input
-                      type="radio"
-                      name={`appeal-${title}`}
-                      checked={!proc.hasAppealSubmitted}
-                      onChange={() => onChange({ ...proc, hasAppealSubmitted: false })}
-                    />
-                    미제출 (벌점 확정)
-                  </label>
-                  <label className="flex items-center gap-1 font-semibold text-purple-800">
-                    <input
-                      type="radio"
-                      name={`appeal-${title}`}
-                      checked={proc.hasAppealSubmitted}
-                      onChange={() => onChange({ ...proc, hasAppealSubmitted: true })}
-                    />
-                    이의제기 (외부심의)
-                  </label>
-                </div>
-              </div>
-
-              {proc.hasAppealSubmitted && (
-                <div className="grid grid-cols-2 gap-2 bg-purple-50/60 p-2 rounded-lg border border-purple-100">
-                  <div>
-                    <label className="text-[11px] text-slate-600 block">외부심의회 개최일</label>
-                    <input
-                      type="date"
-                      value={proc.committeeDate}
-                      onChange={(e) => onChange({ ...proc, committeeDate: e.target.value })}
-                      className="w-full border p-1 rounded-lg bg-white text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-slate-600 block">최종결과 통보일</label>
-                    <input
-                      type="date"
-                      value={proc.finalResultDate}
-                      onChange={(e) => onChange({ ...proc, finalResultDate: e.target.value })}
-                      className="w-full border p-1 rounded-lg bg-white text-xs"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          </React.Fragment>
-        )}
-      </div>
-    </div>
-  );
-
-  const DemeritDisplayCard = ({ title, icon, proc }: { title: string; icon: React.ReactNode; proc: DemeritProc }) => {
-    if (!proc || (!proc.item && !proc.score)) return null;
-
-    return (
-      <div className="bg-white/90 p-3 rounded-xl border border-rose-200 text-xs space-y-2">
-        <div className="flex items-center justify-between border-b border-rose-100 pb-1.5">
-          <span className="font-bold text-rose-950 flex items-center gap-1 text-xs">
-            {icon}
-            {title} 벌점 처분
-          </span>
-          <span className="bg-rose-600 text-white font-black text-[11px] px-2 py-0.5 rounded-full">
-            {proc.score || "0"}점
-          </span>
-        </div>
-
-        <div className="flex flex-wrap gap-1">
-          {proc.opinionResult === "수용(종결)" ? (
-            <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded">
-              🟢 의견제출 수용 (철회/종결)
-            </span>
-          ) : !proc.hasAppealSubmitted ? (
-            <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded">
-              🟠 이의제기 미제출 (벌점 확정)
-            </span>
-          ) : (
-            <span className="bg-purple-100 text-purple-800 text-[10px] font-bold px-2 py-0.5 rounded">
-              🟣 외부심의 진행 중
-            </span>
-          )}
-        </div>
-
-        {proc.item && (
-          <div>
-            <span className="font-semibold text-rose-900 block text-[11px]">지적 및 벌점 항목:</span>
-            <p className="text-slate-800 font-medium whitespace-pre-wrap mt-0.5">{proc.item}</p>
-          </div>
-        )}
-
-        <div className="bg-rose-50/50 p-2.5 rounded-lg border border-rose-100 text-[11px] space-y-1">
-          <span className="font-bold text-rose-900 block mb-0.5">📌 진행 일정:</span>
-          <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-slate-700">
-            <div>• 사전통지일: <span className="font-semibold">{proc.noticeDate || "-"}</span></div>
-            <div>• 의견마감일: <span className="font-semibold text-rose-700">{proc.opinionDeadline || "-"}</span></div>
-            <div>• 의견검토결과: <span className="font-bold text-rose-800">{proc.opinionResult || "미제출"}</span></div>
-            
-            {proc.opinionResult !== "수용(종결)" && (
-              <React.Fragment>
-                <div>• 검토회의일: <span className="font-semibold">{proc.reviewMeetingDate || "-"}</span></div>
-                <div>• 결과통보일: <span className="font-semibold">{proc.noticeResultDate || "-"}</span></div>
-                <div>• 이의마감일: <span className="font-semibold text-rose-700">{proc.appealDeadline || "-"}</span></div>
-                <div>• 이의제기여부: <span className="font-semibold">{proc.hasAppealSubmitted ? "제출됨" : "미제출"}</span></div>
-                {proc.hasAppealSubmitted && (
-                  <React.Fragment>
-                    <div>• 외부심의일: <span className="font-semibold text-purple-700">{proc.committeeDate || "-"}</span></div>
-                    <div>• 최종통보일: <span className="font-semibold">{proc.finalResultDate || "-"}</span></div>
-                  </React.Fragment>
-                )}
-              </React.Fragment>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <main className="min-h-screen bg-slate-50 p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -1606,7 +1611,7 @@ export default function Home() {
                 />
               </div>
 
-              {/* 시공사 / 감리사 분리 벌점 설정 영역 */}
+              {/* 🚨 시공사 / 감리사 분리 벌점 설정 영역 */}
               <div className="bg-rose-50/80 border border-rose-200 p-3.5 rounded-xl space-y-3">
                 <div className="flex items-center justify-between border-b border-rose-200 pb-2">
                   <span className="font-bold text-rose-900 flex items-center gap-1">
@@ -1919,6 +1924,7 @@ export default function Home() {
                   />
                 </div>
 
+                {/* 벌점 프로세스 수정 영역 */}
                 <div className="bg-rose-50/80 border border-rose-200 p-3.5 rounded-xl space-y-3">
                   <div className="flex items-center justify-between border-b border-rose-200 pb-2">
                     <span className="font-bold text-rose-900 flex items-center gap-1">
