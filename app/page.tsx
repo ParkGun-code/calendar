@@ -66,10 +66,10 @@ interface DemeritProc {
   contractType: string; // '단독' | '공동이행(지분율분할)' | '분담이행'
   items: DemeritItemDetail[]; // 복수 벌점 항목
   jointMembers: JointMember[]; // 공동수급체 구성원 목록
-  finalNoticeDate: string; // 🔥 최종 벌점 통보일
+  finalNoticeDate: string; // 최종 벌점 통보일
   noticeDate: string;
   opinionDeadline: string;
-  opinionResult: string; // '미제출' | '불수용' | '수용(종결)'
+  opinionResult: string; // '미제출' | '불수용' | '수용(종결)' | '취소의결(벌점미부과)'
   reviewMeetingDate: string;
   noticeResultDate: string;
   appealDeadline: string;
@@ -214,7 +214,7 @@ const defaultDemeritProc = (): DemeritProc => ({
   contractType: "단독",
   items: [{ id: "1", content: "", score: "" }],
   jointMembers: [{ id: "1", name: "", ratio: "100", assignedScore: "" }],
-  finalNoticeDate: "", // 🔥 최종 벌점 통보일
+  finalNoticeDate: "",
   noticeDate: "",
   opinionDeadline: "",
   opinionResult: "미제출",
@@ -270,9 +270,13 @@ function DemeritProcInputs({
     onChange({ ...proc, jointMembers: updatedMembers });
   };
 
-  const totalScore = safeItems
-    .reduce((acc, curr) => acc + (parseFloat(curr.score) || 0), 0)
-    .toFixed(1);
+  const isCanceled = proc.opinionResult === "수용(종결)" || proc.opinionResult === "취소의결(벌점미부과)";
+
+  const totalScore = isCanceled
+    ? "0.0 (취소종결)"
+    : safeItems
+        .reduce((acc, curr) => acc + (parseFloat(curr.score) || 0), 0)
+        .toFixed(1);
 
   return (
     <div className="bg-white p-3 rounded-xl border border-rose-200 space-y-3 shadow-sm">
@@ -281,12 +285,11 @@ function DemeritProcInputs({
           {icon}
           {title} 벌점 세부 절차
         </span>
-        <span className="bg-rose-100 text-rose-800 text-[11px] font-bold px-2 py-0.5 rounded">
-          기준 벌점 합계: {totalScore}점
+        <span className={`text-[11px] font-bold px-2 py-0.5 rounded ${isCanceled ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
+          벌점: {totalScore}{!isCanceled && "점"}
         </span>
       </div>
 
-      {/* 도급 형태 선택 */}
       <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 flex items-center justify-between">
         <span className="font-bold text-slate-700 text-[11px] flex items-center gap-1">
           <Users size={14} className="text-slate-500" />
@@ -303,10 +306,9 @@ function DemeritProcInputs({
         </select>
       </div>
 
-      {/* 🔥 최종 벌점 통보일 입력 필드 (새로 추가) */}
       <div className="bg-rose-50/70 p-2.5 rounded-lg border border-rose-200 flex items-center justify-between">
         <label className="font-bold text-rose-900 text-[11px]">
-          🔴 최종 벌점 확정 통보일:
+          🔴 최종 벌점 확정/취소 통보일:
         </label>
         <input
           type="date"
@@ -316,7 +318,6 @@ function DemeritProcInputs({
         />
       </div>
 
-      {/* 공동이행방식일 경우 수급체 구성원 및 지분율 입력 */}
       {proc.contractType === "공동이행(지분율분할)" && (
         <div className="bg-amber-50/70 p-2.5 rounded-lg border border-amber-200 space-y-2">
           <div className="flex items-center justify-between">
@@ -374,7 +375,6 @@ function DemeritProcInputs({
         </div>
       )}
 
-      {/* 동적 복수 벌점 항목 리스트 */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <label className="font-bold text-slate-700 text-[11px]">
@@ -431,7 +431,7 @@ function DemeritProcInputs({
       </div>
 
       <div className="space-y-2 pt-1 border-t border-rose-100">
-        <span className="font-bold text-rose-800 text-[11px] block">1단계: 사전통지 및 의견제출 결과</span>
+        <span className="font-bold text-rose-800 text-[11px] block">1단계: 사전통지 및 의견제출/심의 결과</span>
         
         <div className="grid grid-cols-2 gap-2">
           <div>
@@ -455,22 +455,25 @@ function DemeritProcInputs({
         </div>
 
         <div className="bg-rose-50/50 p-2 rounded-lg border border-rose-100 space-y-1">
-          <label className="font-bold text-rose-900 block text-[11px]">의견제출 검토 결과 *</label>
+          <label className="font-bold text-rose-900 block text-[11px]">검토 및 심의 결과 선택 *</label>
           <select
             value={proc.opinionResult}
             onChange={(e) => onChange({ ...proc, opinionResult: e.target.value })}
-            className="w-full border p-1 rounded-lg bg-white font-semibold text-xs"
+            className="w-full border p-1 rounded-lg bg-white font-bold text-xs text-slate-800"
           >
-            <option value="미제출">의견 미제출 (진행 계속)</option>
-            <option value="불수용">의견 제출 - 불수용 (진행 계속)</option>
+            <option value="미제출">의견 미제출 (절차 진행)</option>
+            <option value="불수용">의견 제출 - 불수용 (절차 진행)</option>
             <option value="수용(종결)">의견 제출 - 수용 (벌점부과 철회/종결)</option>
+            <option value="취소의결(벌점미부과)">벌점심의 - 취소 의결 (벌점 미부과 종결)</option>
           </select>
         </div>
 
-        {proc.opinionResult === "수용(종결)" ? (
-          <div className="bg-emerald-50 text-emerald-800 p-2 rounded-lg border border-emerald-200 text-[11px] font-bold flex items-center gap-1">
-            <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />
-            의견이 수용되어 {title} 벌점 절차가 종결되었습니다.
+        {isCanceled ? (
+          <div className="bg-emerald-50 text-emerald-800 p-2.5 rounded-lg border border-emerald-200 text-[11px] font-bold flex items-center gap-1.5">
+            <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+            {proc.opinionResult === "취소의결(벌점미부과)"
+              ? "벌점심의에서 '취소 의결'되어 해당 현장의 벌점 부과가 철회/종결되었습니다. (이력 관리)"
+              : "의견이 수용되어 벌점 부과 절차가 종결되었습니다."}
           </div>
         ) : (
           <React.Fragment>
@@ -567,9 +570,13 @@ function DemeritDisplayCard({ title, icon, proc }: { title: string; icon: React.
   const safeItems = proc.items && proc.items.length > 0 ? proc.items : [];
   const safeMembers = proc.jointMembers && proc.jointMembers.length > 0 ? proc.jointMembers : [];
 
-  const totalScore = safeItems
-    .reduce((acc, curr) => acc + (parseFloat(curr.score) || 0), 0)
-    .toFixed(1);
+  const isCanceled = proc.opinionResult === "수용(종결)" || proc.opinionResult === "취소의결(벌점미부과)";
+
+  const totalScore = isCanceled
+    ? "0.0"
+    : safeItems
+        .reduce((acc, curr) => acc + (parseFloat(curr.score) || 0), 0)
+        .toFixed(1);
 
   return (
     <div className="bg-white/90 p-3 rounded-xl border border-rose-200 text-xs space-y-2">
@@ -578,20 +585,18 @@ function DemeritDisplayCard({ title, icon, proc }: { title: string; icon: React.
           {icon}
           {title} 벌점 처분 ({proc.contractType || "단독"})
         </span>
-        <span className="bg-rose-600 text-white font-black text-[11px] px-2.5 py-0.5 rounded-full">
-          기준합계 {totalScore}점
+        <span className={`font-black text-[11px] px-2.5 py-0.5 rounded-full ${isCanceled ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"}`}>
+          {isCanceled ? "취소종결 (0점)" : `기준합계 ${totalScore}점`}
         </span>
       </div>
 
-      {/* 🔥 최종 벌점 확정 통보일 표출 */}
       {proc.finalNoticeDate && (
         <div className="bg-rose-100/70 p-2 rounded-lg border border-rose-200 flex items-center justify-between font-bold text-rose-900">
-          <span>🔴 최종 벌점 확정 통보일:</span>
+          <span>🔴 최종 벌점 확정/취소 통보일:</span>
           <span>{proc.finalNoticeDate}</span>
         </div>
       )}
 
-      {/* 공동이행방식 분할 벌점 표출 */}
       {proc.contractType === "공동이행(지분율분할)" && safeMembers.length > 0 && (
         <div className="bg-amber-50 p-2 rounded-lg border border-amber-200 space-y-1">
           <span className="font-bold text-amber-900 block text-[11px]">🤝 공동수급체 구성원별 분할 부과 벌점:</span>
@@ -599,7 +604,7 @@ function DemeritDisplayCard({ title, icon, proc }: { title: string; icon: React.
             {safeMembers.map((m) => (
               <div key={m.id} className="bg-white p-1 rounded border border-amber-100 flex justify-between font-semibold">
                 <span>{m.name || "업체명미입력"} ({m.ratio}%)</span>
-                <span className="text-rose-700 font-bold">{m.assignedScore || "0"}점</span>
+                <span className="text-rose-700 font-bold">{isCanceled ? "0점(취소)" : `${m.assignedScore || "0"}점`}</span>
               </div>
             ))}
           </div>
@@ -607,7 +612,11 @@ function DemeritDisplayCard({ title, icon, proc }: { title: string; icon: React.
       )}
 
       <div className="flex flex-wrap gap-1">
-        {proc.opinionResult === "수용(종결)" ? (
+        {proc.opinionResult === "취소의결(벌점미부과)" ? (
+          <span className="bg-emerald-100 text-emerald-900 text-[10px] font-bold px-2 py-0.5 rounded border border-emerald-300">
+            🟢 벌점심의 취소 의결 (벌점 미부과 종결)
+          </span>
+        ) : proc.opinionResult === "수용(종결)" ? (
           <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded">
             🟢 의견제출 수용 (철회/종결)
           </span>
@@ -632,7 +641,7 @@ function DemeritDisplayCard({ title, icon, proc }: { title: string; icon: React.
                   {idx + 1}. {it.content || "지적 항목 미입력"}
                 </span>
                 <span className="font-black text-rose-700 text-[11px] shrink-0 bg-white px-1.5 py-0.5 rounded border border-rose-200">
-                  {it.score || "0"}점
+                  {isCanceled ? "0점(취소)" : `${it.score || "0"}점`}
                 </span>
               </div>
             ))}
@@ -645,9 +654,9 @@ function DemeritDisplayCard({ title, icon, proc }: { title: string; icon: React.
         <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-slate-700">
           <div>• 사전통지일: <span className="font-semibold">{proc.noticeDate || "-"}</span></div>
           <div>• 의견마감일: <span className="font-semibold text-rose-700">{proc.opinionDeadline || "-"}</span></div>
-          <div>• 의견검토결과: <span className="font-bold text-rose-800">{proc.opinionResult || "미제출"}</span></div>
+          <div>• 검토/심의결과: <span className="font-bold text-rose-800">{proc.opinionResult || "미제출"}</span></div>
           
-          {proc.opinionResult !== "수용(종결)" && (
+          {!isCanceled && (
             <React.Fragment>
               <div>• 검토회의일: <span className="font-semibold">{proc.reviewMeetingDate || "-"}</span></div>
               <div>• 결과통보일: <span className="font-semibold">{proc.noticeResultDate || "-"}</span></div>
@@ -1436,7 +1445,13 @@ export default function Home() {
     );
   });
 
-  const totalDemeritSitesCount = periodDemeritEvents.length;
+  // 벌점 취소의결건 제외 실제 부과 개소수 연산
+  const totalDemeritSitesCount = periodDemeritEvents.filter((e) => {
+    const bRes = e.extendedProps.builderDemerit?.opinionResult;
+    const sRes = e.extendedProps.supervisorDemerit?.opinionResult;
+    return bRes !== "취소의결(벌점미부과)" && bRes !== "수용(종결)" && sRes !== "취소의결(벌점미부과)" && sRes !== "수용(종결)";
+  }).length;
+
   const totalFineSitesCount = periodFineEvents.length;
 
   const exportToExcel = () => {
@@ -1680,7 +1695,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 📊 상세 처분 현황 대시보드 모달 (최종 벌점 통보일 칼럼 포함) */}
+      {/* 📊 상세 처분 현황 대시보드 모달 */}
       {isStatsModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-slate-100 space-y-5 max-h-[90vh] overflow-y-auto">
@@ -1796,6 +1811,7 @@ export default function Home() {
                       finalDemeritTable.map((e) => {
                         const bItems = e.extendedProps.builderDemerit?.items || [];
                         const sItems = e.extendedProps.supervisorDemerit?.items || [];
+                        const bCanceled = e.extendedProps.builderDemerit?.opinionResult === "취소의결(벌점미부과)" || e.extendedProps.builderDemerit?.opinionResult === "수용(종결)";
 
                         return (
                           <tr key={e.id} className="hover:bg-slate-50">
@@ -1819,7 +1835,7 @@ export default function Home() {
                                   {bItems.map((it, idx) => (
                                     <div key={idx} className="text-[11px] text-slate-700 flex justify-between">
                                       <span>• {it.content}</span>
-                                      <span className="font-bold text-rose-700 shrink-0 ml-1">{it.score}점</span>
+                                      <span className="font-bold text-rose-700 shrink-0 ml-1">{bCanceled ? "0점(취소)" : `${it.score}점`}</span>
                                     </div>
                                   ))}
                                 </div>
@@ -1838,7 +1854,11 @@ export default function Home() {
                               )}
                             </td>
                             <td className="p-2.5 text-center whitespace-nowrap">
-                              {e.extendedProps.builderDemerit?.opinionResult === "수용(종결)" ? (
+                              {e.extendedProps.builderDemerit?.opinionResult === "취소의결(벌점미부과)" ? (
+                                <span className="bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded font-bold text-[10px] block border border-emerald-300">
+                                  🟢 취소 의결 (미부과)
+                                </span>
+                              ) : e.extendedProps.builderDemerit?.opinionResult === "수용(종결)" ? (
                                 <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold text-[10px] block">
                                   🟢 의견수용 (종결)
                                 </span>
