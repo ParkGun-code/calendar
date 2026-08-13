@@ -66,6 +66,7 @@ interface DemeritProc {
   contractType: string; // '단독' | '공동이행(지분율분할)' | '분담이행'
   items: DemeritItemDetail[]; // 복수 벌점 항목
   jointMembers: JointMember[]; // 공동수급체 구성원 목록
+  finalNoticeDate: string; // 🔥 최종 벌점 통보일
   noticeDate: string;
   opinionDeadline: string;
   opinionResult: string; // '미제출' | '불수용' | '수용(종결)'
@@ -213,6 +214,7 @@ const defaultDemeritProc = (): DemeritProc => ({
   contractType: "단독",
   items: [{ id: "1", content: "", score: "" }],
   jointMembers: [{ id: "1", name: "", ratio: "100", assignedScore: "" }],
+  finalNoticeDate: "", // 🔥 최종 벌점 통보일
   noticeDate: "",
   opinionDeadline: "",
   opinionResult: "미제출",
@@ -284,6 +286,7 @@ function DemeritProcInputs({
         </span>
       </div>
 
+      {/* 도급 형태 선택 */}
       <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 flex items-center justify-between">
         <span className="font-bold text-slate-700 text-[11px] flex items-center gap-1">
           <Users size={14} className="text-slate-500" />
@@ -300,6 +303,20 @@ function DemeritProcInputs({
         </select>
       </div>
 
+      {/* 🔥 최종 벌점 통보일 입력 필드 (새로 추가) */}
+      <div className="bg-rose-50/70 p-2.5 rounded-lg border border-rose-200 flex items-center justify-between">
+        <label className="font-bold text-rose-900 text-[11px]">
+          🔴 최종 벌점 확정 통보일:
+        </label>
+        <input
+          type="date"
+          value={proc.finalNoticeDate || ""}
+          onChange={(e) => onChange({ ...proc, finalNoticeDate: e.target.value })}
+          className="border p-1 rounded bg-white text-xs font-bold text-rose-800 outline-none focus:border-rose-500"
+        />
+      </div>
+
+      {/* 공동이행방식일 경우 수급체 구성원 및 지분율 입력 */}
       {proc.contractType === "공동이행(지분율분할)" && (
         <div className="bg-amber-50/70 p-2.5 rounded-lg border border-amber-200 space-y-2">
           <div className="flex items-center justify-between">
@@ -357,6 +374,7 @@ function DemeritProcInputs({
         </div>
       )}
 
+      {/* 동적 복수 벌점 항목 리스트 */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <label className="font-bold text-slate-700 text-[11px]">
@@ -565,6 +583,15 @@ function DemeritDisplayCard({ title, icon, proc }: { title: string; icon: React.
         </span>
       </div>
 
+      {/* 🔥 최종 벌점 확정 통보일 표출 */}
+      {proc.finalNoticeDate && (
+        <div className="bg-rose-100/70 p-2 rounded-lg border border-rose-200 flex items-center justify-between font-bold text-rose-900">
+          <span>🔴 최종 벌점 확정 통보일:</span>
+          <span>{proc.finalNoticeDate}</span>
+        </div>
+      )}
+
+      {/* 공동이행방식 분할 벌점 표출 */}
       {proc.contractType === "공동이행(지분율분할)" && safeMembers.length > 0 && (
         <div className="bg-amber-50 p-2 rounded-lg border border-amber-200 space-y-1">
           <span className="font-bold text-amber-900 block text-[11px]">🤝 공동수급체 구성원별 분할 부과 벌점:</span>
@@ -680,7 +707,6 @@ export default function Home() {
     lawsuitNotes: "",
   });
 
-  // 통계 모달 탭 상태
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
   const [statsTab, setStatsTab] = useState<"demerit" | "fine">("demerit");
   const [statsYearFilter, setStatsYearFilter] = useState("all");
@@ -774,6 +800,7 @@ export default function Home() {
                 contractType: item.builder_contract_type || "단독",
                 items: parseDemeritItemsJson(item.builder_demerit_item, item.demerit_item, item.builder_demerit_score || item.demerit_score),
                 jointMembers: parseJointMembersJson(item.builder_joint_members),
+                finalNoticeDate: item.builder_demerit_final_notice_date || "",
                 noticeDate: item.builder_demerit_notice_date || item.demerit_notice_date || "",
                 opinionDeadline: item.builder_demerit_opinion_deadline || item.demerit_opinion_deadline || "",
                 opinionResult: item.builder_opinion_result || item.opinion_result || "미제출",
@@ -789,6 +816,7 @@ export default function Home() {
                 contractType: item.supervisor_contract_type || "단독",
                 items: parseDemeritItemsJson(item.supervisor_demerit_item, "", item.supervisor_demerit_score),
                 jointMembers: parseJointMembersJson(item.supervisor_joint_members),
+                finalNoticeDate: item.supervisor_demerit_final_notice_date || "",
                 noticeDate: item.supervisor_demerit_notice_date || "",
                 opinionDeadline: item.supervisor_demerit_opinion_deadline || "",
                 opinionResult: item.supervisor_opinion_result || "미제출",
@@ -925,6 +953,7 @@ export default function Home() {
             builder_contract_type: addForm.builderDemerit.contractType,
             builder_demerit_item: JSON.stringify(addForm.builderDemerit.items),
             builder_joint_members: JSON.stringify(addForm.builderDemerit.jointMembers),
+            builder_demerit_final_notice_date: addForm.builderDemerit.finalNoticeDate,
             builder_demerit_notice_date: addForm.builderDemerit.noticeDate,
             builder_demerit_opinion_deadline: addForm.builderDemerit.opinionDeadline,
             builder_opinion_result: addForm.builderDemerit.opinionResult,
@@ -938,6 +967,7 @@ export default function Home() {
             supervisor_contract_type: addForm.supervisorDemerit.contractType,
             supervisor_demerit_item: JSON.stringify(addForm.supervisorDemerit.items),
             supervisor_joint_members: JSON.stringify(addForm.supervisorDemerit.jointMembers),
+            supervisor_demerit_final_notice_date: addForm.supervisorDemerit.finalNoticeDate,
             supervisor_demerit_notice_date: addForm.supervisorDemerit.noticeDate,
             supervisor_demerit_opinion_deadline: addForm.supervisorDemerit.opinionDeadline,
             supervisor_opinion_result: addForm.supervisorDemerit.opinionResult,
@@ -1319,6 +1349,7 @@ export default function Home() {
               builder_contract_type: editForm.builderDemerit?.contractType,
               builder_demerit_item: JSON.stringify(editForm.builderDemerit?.items || []),
               builder_joint_members: JSON.stringify(editForm.builderDemerit?.jointMembers || []),
+              builder_demerit_final_notice_date: editForm.builderDemerit?.finalNoticeDate,
               builder_demerit_notice_date: editForm.builderDemerit?.noticeDate,
               builder_demerit_opinion_deadline: editForm.builderDemerit?.opinionDeadline,
               builder_opinion_result: editForm.builderDemerit?.opinionResult,
@@ -1332,6 +1363,7 @@ export default function Home() {
               supervisor_contract_type: editForm.supervisorDemerit?.contractType,
               supervisor_demerit_item: JSON.stringify(editForm.supervisorDemerit?.items || []),
               supervisor_joint_members: JSON.stringify(editForm.supervisorDemerit?.jointMembers || []),
+              supervisor_demerit_final_notice_date: editForm.supervisorDemerit?.finalNoticeDate,
               supervisor_demerit_notice_date: editForm.supervisorDemerit?.noticeDate,
               supervisor_demerit_opinion_deadline: editForm.supervisorDemerit?.opinionDeadline,
               supervisor_opinion_result: editForm.supervisorDemerit?.opinionResult,
@@ -1404,7 +1436,9 @@ export default function Home() {
     );
   });
 
-  // 엑셀 다운로드 함수
+  const totalDemeritSitesCount = periodDemeritEvents.length;
+  const totalFineSitesCount = periodFineEvents.length;
+
   const exportToExcel = () => {
     const dataToExport =
       statsTab === "demerit"
@@ -1413,8 +1447,10 @@ export default function Home() {
             공사명: e.extendedProps.projectName,
             처분대상: e.extendedProps.demeritTarget,
             시공사: e.extendedProps.builder,
-            감리사: e.extendedProps.supervisor,
+            시공사_최종벌점통보일: e.extendedProps.builderDemerit?.finalNoticeDate || "-",
             시공사_지적항목: (e.extendedProps.builderDemerit?.items || []).map((it) => `${it.content}(${it.score}점)`).join(" / "),
+            감리사: e.extendedProps.supervisor,
+            감리사_최종벌점통보일: e.extendedProps.supervisorDemerit?.finalNoticeDate || "-",
             감리사_지적항목: (e.extendedProps.supervisorDemerit?.items || []).map((it) => `${it.content}(${it.score}점)`).join(" / "),
             소송여부: e.extendedProps.hasLawsuit ? "소송중" : "미제기",
             사건번호: e.extendedProps.lawsuitCaseNumber || "-",
@@ -1644,7 +1680,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 📊 상세 처분 현황 대시보드 모달 (벌점/과태료 탭 분리 및 상세항목 표출) */}
+      {/* 📊 상세 처분 현황 대시보드 모달 (최종 벌점 통보일 칼럼 포함) */}
       {isStatsModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-slate-100 space-y-5 max-h-[90vh] overflow-y-auto">
@@ -1661,7 +1697,6 @@ export default function Home() {
               </button>
             </div>
 
-            {/* 🚨 벌점 / 💸 과태료 탭 분리 선택바 */}
             <div className="flex border-b border-slate-200">
               <button
                 onClick={() => setStatsTab("demerit")}
@@ -1686,7 +1721,6 @@ export default function Home() {
               </button>
             </div>
 
-            {/* 📅 기간별 필터 & 엑셀 다운로드 */}
             <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-xs">
                 <span className="font-bold text-slate-700">조회 기간:</span>
@@ -1733,7 +1767,6 @@ export default function Home() {
               </button>
             </div>
 
-            {/* 검색바 */}
             <div className="relative">
               <Search size={16} className="absolute left-3 top-3 text-slate-400" />
               <input
@@ -1745,7 +1778,6 @@ export default function Home() {
               />
             </div>
 
-            {/* 📊 벌점 부과 현황 상세 종합 테이블 */}
             {statsTab === "demerit" && (
               <div className="border border-slate-200 rounded-xl overflow-x-auto text-xs">
                 <table className="w-full text-left border-collapse min-w-[700px]">
@@ -1753,7 +1785,7 @@ export default function Home() {
                     <tr>
                       <th className="p-2.5 whitespace-nowrap">점검일</th>
                       <th className="p-2.5">공사명 / 현장</th>
-                      <th className="p-2.5">처분대상 & 수급형태</th>
+                      <th className="p-2.5">처분대상 & 최종통보일</th>
                       <th className="p-2.5">세부 지적항목 및 기준벌점</th>
                       <th className="p-2.5 text-center whitespace-nowrap">행정절차 상태</th>
                       <th className="p-2.5 text-center whitespace-nowrap">소송 상태</th>
@@ -1773,11 +1805,11 @@ export default function Home() {
                               <span className="font-bold block text-rose-800">
                                 [{e.extendedProps.demeritTarget || "전체"}]
                               </span>
-                              <span className="text-[11px] text-slate-500 block">
-                                시공: {e.extendedProps.builder || "-"} ({e.extendedProps.builderDemerit?.contractType || "단독"})
+                              <span className="text-[11px] text-slate-600 block">
+                                시공: {e.extendedProps.builder || "-"} (통보일: {e.extendedProps.builderDemerit?.finalNoticeDate || "-"})
                               </span>
-                              <span className="text-[11px] text-slate-500 block">
-                                감리: {e.extendedProps.supervisor || "-"} ({e.extendedProps.supervisorDemerit?.contractType || "단독"})
+                              <span className="text-[11px] text-slate-600 block">
+                                감리: {e.extendedProps.supervisor || "-"} (통보일: {e.extendedProps.supervisorDemerit?.finalNoticeDate || "-"})
                               </span>
                             </td>
                             <td className="p-2.5 space-y-1">
@@ -1844,7 +1876,6 @@ export default function Home() {
               </div>
             )}
 
-            {/* 📊 과태료 부과 현황 상세 테이블 */}
             {statsTab === "fine" && (
               <div className="border border-slate-200 rounded-xl overflow-x-auto text-xs">
                 <table className="w-full text-left border-collapse min-w-[600px]">
@@ -2485,7 +2516,7 @@ export default function Home() {
               </div>
             ) : (
               <div className="space-y-4 text-sm">
-                {/* 🚨 시공사 / 감리사 각각의 벌점 카드로 분리 표시 */}
+                {/* 시공사 / 감리사 각각의 벌점 카드로 분리 표시 */}
                 {selectedEvent.extendedProps.hasDemerit && (
                   <div className="space-y-3">
                     <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl flex items-center justify-between">
