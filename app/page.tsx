@@ -28,6 +28,7 @@ import {
   CheckCircle2,
   HardHat,
   ShieldCheck,
+  Plus,
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -44,9 +45,15 @@ const getSupabaseClient = () => {
   return null;
 };
 
+// 개별 벌점 항목 인터페이스
+interface DemeritItemDetail {
+  id: string;
+  content: string; // 지적 항목 내용
+  score: string;   // 해당 항목 벌점 점수
+}
+
 interface DemeritProc {
-  item: string;
-  score: string;
+  items: DemeritItemDetail[]; // 복수 벌점 항목
   noticeDate: string;
   opinionDeadline: string;
   opinionResult: string; // '미제출' | '불수용' | '수용(종결)'
@@ -191,8 +198,7 @@ const formatDate = (val: any): string => {
 const YEARS_LIST = Array.from({ length: 21 }, (_, i) => String(2010 + i));
 
 const defaultDemeritProc = (): DemeritProc => ({
-  item: "",
-  score: "",
+  items: [{ id: "1", content: "", score: "" }],
   noticeDate: "",
   opinionDeadline: "",
   opinionResult: "미제출",
@@ -204,7 +210,7 @@ const defaultDemeritProc = (): DemeritProc => ({
   finalResultDate: "",
 });
 
-// 포커스 튕김 방지를 위해 메커니즘을 밖으로 완전히 분리한 서브 컴포넌트
+// 외부 독립 컴포넌트: 벌점 입력
 function DemeritProcInputs({
   title,
   icon,
@@ -216,35 +222,94 @@ function DemeritProcInputs({
   proc: DemeritProc;
   onChange: (updated: DemeritProc) => void;
 }) {
-  return (
-    <div className="bg-white p-3 rounded-xl border border-rose-200 space-y-2.5 shadow-sm">
-      <span className="font-bold text-rose-900 text-xs flex items-center gap-1 border-b border-rose-100 pb-1.5">
-        {icon}
-        {title} 벌점 세부 절차
-      </span>
+  const safeItems = proc?.items && proc.items.length > 0 ? proc.items : [{ id: "1", content: "", score: "" }];
 
-      <div>
-        <label className="font-semibold text-slate-700 block mb-0.5">
-          벌점 항목 (지적 분야 - 여러 항목 가능)
-        </label>
-        <textarea
-          rows={3}
-          placeholder={`1. 정기안전점검 미실시\n2. 품질시험계획 수립 미흡`}
-          value={proc.item}
-          onChange={(e) => onChange({ ...proc, item: e.target.value })}
-          className="w-full border p-2 rounded-lg bg-slate-50 text-xs leading-relaxed outline-none focus:border-rose-400"
-        />
+  const handleAddItem = () => {
+    const newItem: DemeritItemDetail = { id: String(Date.now()), content: "", score: "" };
+    onChange({ ...proc, items: [...safeItems, newItem] });
+  };
+
+  const handleRemoveItem = (id: string) => {
+    if (safeItems.length <= 1) return;
+    onChange({ ...proc, items: safeItems.filter((it) => it.id !== id) });
+  };
+
+  const handleItemChange = (id: string, field: "content" | "score", val: string) => {
+    const updatedItems = safeItems.map((it) => (it.id === id ? { ...it, [field]: val } : it));
+    onChange({ ...proc, items: updatedItems });
+  };
+
+  // 총 벌점 계산
+  const totalScore = safeItems
+    .reduce((acc, curr) => acc + (parseFloat(curr.score) || 0), 0)
+    .toFixed(1);
+
+  return (
+    <div className="bg-white p-3 rounded-xl border border-rose-200 space-y-3 shadow-sm">
+      <div className="flex items-center justify-between border-b border-rose-100 pb-1.5">
+        <span className="font-bold text-rose-900 text-xs flex items-center gap-1">
+          {icon}
+          {title} 벌점 세부 절차
+        </span>
+        <span className="bg-rose-100 text-rose-800 text-[11px] font-bold px-2 py-0.5 rounded">
+          총 벌점: {totalScore}점
+        </span>
       </div>
 
-      <div>
-        <label className="font-semibold text-slate-700 block mb-0.5">벌점 점수 (점)</label>
-        <input
-          type="text"
-          placeholder="예: 3"
-          value={proc.score}
-          onChange={(e) => onChange({ ...proc, score: e.target.value })}
-          className="w-full border p-1.5 rounded-lg bg-slate-50 text-xs outline-none focus:border-rose-400"
-        />
+      {/* 동적 복수 벌점 항목 리스트 */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <label className="font-bold text-slate-700 text-[11px]">
+            📌 지적 항목 및 개별 벌점 목록 ({safeItems.length}개)
+          </label>
+          <button
+            type="button"
+            onClick={handleAddItem}
+            className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded hover:bg-emerald-100 transition"
+          >
+            <Plus size={12} />
+            벌점 항목 추가
+          </button>
+        </div>
+
+        {safeItems.map((item, idx) => (
+          <div key={item.id} className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-700 text-[11px]">
+                항목 {idx + 1}
+              </span>
+              {safeItems.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => handleRemoveItem(item.id)}
+                  className="text-rose-600 hover:text-rose-800 text-[10px] font-bold flex items-center gap-0.5"
+                >
+                  <X size={12} /> 삭제
+                </button>
+              )}
+            </div>
+
+            <input
+              type="text"
+              placeholder={`예: 건설공사현장 안전관리대책의 소홀[가.11)나)]`}
+              value={item.content}
+              onChange={(e) => handleItemChange(item.id, "content", e.target.value)}
+              className="w-full border p-1.5 rounded bg-white text-xs outline-none focus:border-rose-400"
+            />
+
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold text-slate-600 shrink-0">부과 벌점:</span>
+              <input
+                type="text"
+                placeholder="예: 3 (숫자 입력)"
+                value={item.score}
+                onChange={(e) => handleItemChange(item.id, "score", e.target.value)}
+                className="w-full border p-1 rounded bg-white text-xs outline-none focus:border-rose-400"
+              />
+              <span className="text-xs font-bold text-rose-700 shrink-0">점</span>
+            </div>
+          </div>
+        ))}
       </div>
 
       <div className="space-y-2 pt-1 border-t border-rose-100">
@@ -379,8 +444,16 @@ function DemeritProcInputs({
   );
 }
 
+// 외부 독립 컴포넌트: 벌점 상세 열람 카드
 function DemeritDisplayCard({ title, icon, proc }: { title: string; icon: React.ReactNode; proc: DemeritProc }) {
-  if (!proc || (!proc.item && !proc.score)) return null;
+  if (!proc) return null;
+  const safeItems = proc.items && proc.items.length > 0 ? proc.items : [];
+  
+  const totalScore = safeItems
+    .reduce((acc, curr) => acc + (parseFloat(curr.score) || 0), 0)
+    .toFixed(1);
+
+  if (safeItems.length === 0 && !totalScore) return null;
 
   return (
     <div className="bg-white/90 p-3 rounded-xl border border-rose-200 text-xs space-y-2">
@@ -389,8 +462,8 @@ function DemeritDisplayCard({ title, icon, proc }: { title: string; icon: React.
           {icon}
           {title} 벌점 처분
         </span>
-        <span className="bg-rose-600 text-white font-black text-[11px] px-2 py-0.5 rounded-full">
-          {proc.score || "0"}점
+        <span className="bg-rose-600 text-white font-black text-[11px] px-2.5 py-0.5 rounded-full">
+          합계 {totalScore}점
         </span>
       </div>
 
@@ -410,10 +483,22 @@ function DemeritDisplayCard({ title, icon, proc }: { title: string; icon: React.
         )}
       </div>
 
-      {proc.item && (
-        <div>
-          <span className="font-semibold text-rose-900 block text-[11px]">지적 및 벌점 항목:</span>
-          <p className="text-slate-800 font-medium whitespace-pre-wrap mt-0.5">{proc.item}</p>
+      {/* 복수 벌점 항목 및 개별 점수 목록 */}
+      {safeItems.length > 0 && (
+        <div className="space-y-1">
+          <span className="font-bold text-rose-900 block text-[11px]">지적 및 벌점 항목 세부:</span>
+          <div className="space-y-1">
+            {safeItems.map((it, idx) => (
+              <div key={it.id || idx} className="bg-rose-50/60 p-2 rounded border border-rose-100 flex items-start justify-between gap-2">
+                <span className="text-slate-800 font-medium text-[11px] leading-snug">
+                  {idx + 1}. {it.content || "지적 항목 미입력"}
+                </span>
+                <span className="font-black text-rose-700 text-[11px] shrink-0 bg-white px-1.5 py-0.5 rounded border border-rose-200">
+                  {it.score || "0"}점
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -492,6 +577,16 @@ export default function Home() {
   const calendarRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const parseDemeritItemsJson = (jsonStr: any, defaultItemStr: string, defaultScoreStr: string): DemeritItemDetail[] => {
+    try {
+      if (jsonStr && typeof jsonStr === "string" && jsonStr.startsWith("[")) {
+        const parsed = JSON.parse(jsonStr);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [{ id: "1", content: defaultItemStr || "", score: defaultScoreStr || "" }];
+  };
+
   const fetchEvents = async () => {
     const supabase = getSupabaseClient();
     if (!supabase) return;
@@ -553,8 +648,7 @@ export default function Home() {
               demeritTarget: item.demerit_target || "시공사 및 감리사",
               
               builderDemerit: {
-                item: item.builder_demerit_item || item.demerit_item || "",
-                score: item.builder_demerit_score || item.demerit_score || "",
+                items: parseDemeritItemsJson(item.builder_demerit_item, item.demerit_item, item.builder_demerit_score || item.demerit_score),
                 noticeDate: item.builder_demerit_notice_date || item.demerit_notice_date || "",
                 opinionDeadline: item.builder_demerit_opinion_deadline || item.demerit_opinion_deadline || "",
                 opinionResult: item.builder_opinion_result || item.opinion_result || "미제출",
@@ -567,8 +661,7 @@ export default function Home() {
               },
 
               supervisorDemerit: {
-                item: item.supervisor_demerit_item || "",
-                score: item.supervisor_demerit_score || "",
+                items: parseDemeritItemsJson(item.supervisor_demerit_item, "", item.supervisor_demerit_score),
                 noticeDate: item.supervisor_demerit_notice_date || "",
                 opinionDeadline: item.supervisor_demerit_opinion_deadline || "",
                 opinionResult: item.supervisor_opinion_result || "미제출",
@@ -702,8 +795,8 @@ export default function Home() {
             has_demerit: addForm.hasDemerit,
             demerit_target: addForm.demeritTarget,
 
-            builder_demerit_item: addForm.builderDemerit.item,
-            builder_demerit_score: addForm.builderDemerit.score,
+            // 복수 항목 JSON 형태로 DB 저장
+            builder_demerit_item: JSON.stringify(addForm.builderDemerit.items),
             builder_demerit_notice_date: addForm.builderDemerit.noticeDate,
             builder_demerit_opinion_deadline: addForm.builderDemerit.opinionDeadline,
             builder_opinion_result: addForm.builderDemerit.opinionResult,
@@ -714,8 +807,7 @@ export default function Home() {
             builder_demerit_committee_date: addForm.builderDemerit.committeeDate,
             builder_demerit_final_result_date: addForm.builderDemerit.finalResultDate,
 
-            supervisor_demerit_item: addForm.supervisorDemerit.item,
-            supervisor_demerit_score: addForm.supervisorDemerit.score,
+            supervisor_demerit_item: JSON.stringify(addForm.supervisorDemerit.items),
             supervisor_demerit_notice_date: addForm.supervisorDemerit.noticeDate,
             supervisor_demerit_opinion_deadline: addForm.supervisorDemerit.opinionDeadline,
             supervisor_opinion_result: addForm.supervisorDemerit.opinionResult,
@@ -1094,8 +1186,7 @@ export default function Home() {
               has_demerit: editForm.hasDemerit,
               demerit_target: editForm.demeritTarget,
 
-              builder_demerit_item: editForm.builderDemerit?.item,
-              builder_demerit_score: editForm.builderDemerit?.score,
+              builder_demerit_item: JSON.stringify(editForm.builderDemerit?.items || []),
               builder_demerit_notice_date: editForm.builderDemerit?.noticeDate,
               builder_demerit_opinion_deadline: editForm.builderDemerit?.opinionDeadline,
               builder_opinion_result: editForm.builderDemerit?.opinionResult,
@@ -1106,8 +1197,7 @@ export default function Home() {
               builder_demerit_committee_date: editForm.builderDemerit?.committeeDate,
               builder_demerit_final_result_date: editForm.builderDemerit?.finalResultDate,
 
-              supervisor_demerit_item: editForm.supervisorDemerit?.item,
-              supervisor_demerit_score: editForm.supervisorDemerit?.score,
+              supervisor_demerit_item: JSON.stringify(editForm.supervisorDemerit?.items || []),
               supervisor_demerit_notice_date: editForm.supervisorDemerit?.noticeDate,
               supervisor_demerit_opinion_deadline: editForm.supervisorDemerit?.opinionDeadline,
               supervisor_opinion_result: editForm.supervisorDemerit?.opinionResult,
@@ -1150,12 +1240,15 @@ export default function Home() {
 
   const finalTableEvents = periodFilteredPenaltyEvents.filter((e) => {
     const q = statsSearchQuery.toLowerCase();
+    const builderStr = JSON.stringify(e.extendedProps.builderDemerit?.items || []).toLowerCase();
+    const supervisorStr = JSON.stringify(e.extendedProps.supervisorDemerit?.items || []).toLowerCase();
+
     return (
       e.extendedProps.projectName.toLowerCase().includes(q) ||
       e.extendedProps.builder.toLowerCase().includes(q) ||
       e.extendedProps.penaltyReason.toLowerCase().includes(q) ||
-      (e.extendedProps.builderDemerit?.item || "").toLowerCase().includes(q) ||
-      (e.extendedProps.supervisorDemerit?.item || "").toLowerCase().includes(q) ||
+      builderStr.includes(q) ||
+      supervisorStr.includes(q) ||
       e.extendedProps.lawsuitCaseNumber.toLowerCase().includes(q)
     );
   });
@@ -2115,6 +2208,7 @@ export default function Home() {
               </div>
             ) : (
               <div className="space-y-4 text-sm">
+                {/* 🚨 시공사 / 감리사 각각의 벌점 카드로 분리 표시 */}
                 {selectedEvent.extendedProps.hasDemerit && (
                   <div className="space-y-3">
                     <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl flex items-center justify-between">
