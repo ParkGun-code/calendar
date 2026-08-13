@@ -24,9 +24,8 @@ import {
   AlertTriangle,
   BarChart3,
   Search,
-  CheckSquare,
-  Clock,
-  FileCheck,
+  Scale,
+  Gavel,
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -68,23 +67,32 @@ interface CalendarEvent {
     checkDate: string;
     eventType: string;
     
-    // 행정 처분 (과태료)
+    // 과태료
     hasFine: boolean;
     fineAmount: string;
     penaltyReason: string;
 
-    // 벌점 행정 절차 세부 데이터
-    hasDemerit: boolean;            // 벌점 부과 여부
-    demeritTarget: string;          // 벌점 대상 (시공사/감리사/전체)
-    demeritItem: string;            // 벌점 항목
-    demeritScore: string;           // 벌점 점수
-    demeritNoticeDate: string;      // 1. 사전통지일
-    demeritOpinionDeadline: string; // 2. 사전통지 의견제출 마감일
-    demeritReviewMeetingDate: string;// 3. 의견제출 검토회의일
-    demeritNoticeResultDate: string;// 4. 검토결과 및 통보일
-    demeritAppealDeadline: string;  // 5. 이의제기 마감일
-    demeritCommitteeDate: string;   // 6. 벌점외부심의회 개최일
-    demeritFinalResultDate: string; // 7. 외부심의 결과 및 통보일
+    // 벌점 행정 절차
+    hasDemerit: boolean;            
+    demeritTarget: string;          
+    demeritItem: string;            
+    demeritScore: string;           
+    demeritNoticeDate: string;      
+    demeritOpinionDeadline: string; 
+    demeritReviewMeetingDate: string;
+    demeritNoticeResultDate: string;
+    demeritAppealDeadline: string;  
+    demeritCommitteeDate: string;   
+    demeritFinalResultDate: string; 
+
+    // 행정 소송 관리
+    hasLawsuit: boolean;            // 소송 진행 여부
+    lawsuitCourt: string;           // 관할 법원 (예: 서울행정법원)
+    lawsuitCaseNumber: string;      // 사건번호 (예: 2026구합12345)
+    lawsuitStatus: string;          // 소송 진행상태 (소제기/변론중/판결선고/종결 등)
+    lawsuitLawyer: string;          // 담당 변호사/법무법인
+    lawsuitResult: string;          // 소송 결과 (승소/패소/일부승소 등)
+    lawsuitNotes: string;           // 소송 주요 내용 및 진행 경과 메모
   };
 }
 
@@ -187,7 +195,7 @@ export default function Home() {
     fineAmount: "",
     penaltyReason: "",
 
-    // 벌점 프로세스 초기값
+    // 벌점 프로세스
     hasDemerit: false,
     demeritTarget: "시공사",
     demeritItem: "",
@@ -199,6 +207,15 @@ export default function Home() {
     demeritAppealDeadline: "",
     demeritCommitteeDate: "",
     demeritFinalResultDate: "",
+
+    // 소송 정보
+    hasLawsuit: false,
+    lawsuitCourt: "",
+    lawsuitCaseNumber: "",
+    lawsuitStatus: "소 제기(접수)",
+    lawsuitLawyer: "",
+    lawsuitResult: "",
+    lawsuitNotes: "",
   });
 
   // 벌점/과태료 통계 모달 & 기간별 필터
@@ -226,6 +243,7 @@ export default function Home() {
           let displayTitle = item.title || "일정";
           if (item.has_demerit) displayTitle = `⚠️ ${displayTitle}`;
           if (item.has_fine) displayTitle = `💸 ${displayTitle}`;
+          if (item.has_lawsuit) displayTitle = `⚖️ ${displayTitle}`;
 
           return {
             id: String(item.id),
@@ -267,6 +285,14 @@ export default function Home() {
               demeritAppealDeadline: item.demerit_appeal_deadline || "",
               demeritCommitteeDate: item.demerit_committee_date || "",
               demeritFinalResultDate: item.demerit_final_result_date || "",
+
+              hasLawsuit: !!item.has_lawsuit,
+              lawsuitCourt: item.lawsuit_court || "",
+              lawsuitCaseNumber: item.lawsuit_case_number || "",
+              lawsuitStatus: item.lawsuit_status || "소 제기(접수)",
+              lawsuitLawyer: item.lawsuit_lawyer || "",
+              lawsuitResult: item.lawsuit_result || "",
+              lawsuitNotes: item.lawsuit_notes || "",
             },
           };
         });
@@ -312,6 +338,7 @@ export default function Home() {
 
     if (addForm.hasDemerit) baseTitle = `⚠️ ${baseTitle}`;
     if (addForm.hasFine) baseTitle = `💸 ${baseTitle}`;
+    if (addForm.hasLawsuit) baseTitle = `⚖️ ${baseTitle}`;
 
     const newEventItem: CalendarEvent = {
       id: String(Date.now()),
@@ -352,6 +379,14 @@ export default function Home() {
         demeritAppealDeadline: addForm.demeritAppealDeadline,
         demeritCommitteeDate: addForm.demeritCommitteeDate,
         demeritFinalResultDate: addForm.demeritFinalResultDate,
+
+        hasLawsuit: addForm.hasLawsuit,
+        lawsuitCourt: addForm.lawsuitCourt,
+        lawsuitCaseNumber: addForm.lawsuitCaseNumber,
+        lawsuitStatus: addForm.lawsuitStatus,
+        lawsuitLawyer: addForm.lawsuitLawyer,
+        lawsuitResult: addForm.lawsuitResult,
+        lawsuitNotes: addForm.lawsuitNotes,
       },
     };
 
@@ -388,6 +423,14 @@ export default function Home() {
             demerit_appeal_deadline: addForm.demeritAppealDeadline,
             demerit_committee_date: addForm.demeritCommitteeDate,
             demerit_final_result_date: addForm.demeritFinalResultDate,
+
+            has_lawsuit: addForm.hasLawsuit,
+            lawsuit_court: addForm.lawsuitCourt,
+            lawsuit_case_number: addForm.lawsuitCaseNumber,
+            lawsuit_status: addForm.lawsuitStatus,
+            lawsuit_lawyer: addForm.lawsuitLawyer,
+            lawsuit_result: addForm.lawsuitResult,
+            lawsuit_notes: addForm.lawsuitNotes,
           },
         ]);
         await fetchEvents();
@@ -571,6 +614,13 @@ export default function Home() {
               demeritAppealDeadline: "",
               demeritCommitteeDate: "",
               demeritFinalResultDate: "",
+              hasLawsuit: false,
+              lawsuitCourt: "",
+              lawsuitCaseNumber: "",
+              lawsuitStatus: "소 제기(접수)",
+              lawsuitLawyer: "",
+              lawsuitResult: "",
+              lawsuitNotes: "",
             },
           };
 
@@ -670,6 +720,14 @@ export default function Home() {
         demeritAppealDeadline: props.demeritAppealDeadline || "",
         demeritCommitteeDate: props.demeritCommitteeDate || "",
         demeritFinalResultDate: props.demeritFinalResultDate || "",
+
+        hasLawsuit: !!props.hasLawsuit,
+        lawsuitCourt: props.lawsuitCourt || "",
+        lawsuitCaseNumber: props.lawsuitCaseNumber || "",
+        lawsuitStatus: props.lawsuitStatus || "소 제기(접수)",
+        lawsuitLawyer: props.lawsuitLawyer || "",
+        lawsuitResult: props.lawsuitResult || "",
+        lawsuitNotes: props.lawsuitNotes || "",
       },
     };
 
@@ -691,6 +749,7 @@ export default function Home() {
 
     if (editForm.hasDemerit) baseTitle = `⚠️ ${baseTitle}`;
     if (editForm.hasFine) baseTitle = `💸 ${baseTitle}`;
+    if (editForm.hasLawsuit) baseTitle = `⚖️ ${baseTitle}`;
 
     const updatedEvent: CalendarEvent = {
       ...selectedEvent,
@@ -746,6 +805,14 @@ export default function Home() {
               demerit_appeal_deadline: editForm.demeritAppealDeadline,
               demerit_committee_date: editForm.demeritCommitteeDate,
               demerit_final_result_date: editForm.demeritFinalResultDate,
+
+              has_lawsuit: editForm.hasLawsuit,
+              lawsuit_court: editForm.lawsuitCourt,
+              lawsuit_case_number: editForm.lawsuitCaseNumber,
+              lawsuit_status: editForm.lawsuitStatus,
+              lawsuit_lawyer: editForm.lawsuitLawyer,
+              lawsuit_result: editForm.lawsuitResult,
+              lawsuit_notes: editForm.lawsuitNotes,
             })
             .eq("id", Number(selectedEvent.id));
         }
@@ -775,7 +842,8 @@ export default function Home() {
       e.extendedProps.projectName.toLowerCase().includes(q) ||
       e.extendedProps.builder.toLowerCase().includes(q) ||
       e.extendedProps.penaltyReason.toLowerCase().includes(q) ||
-      e.extendedProps.demeritItem.toLowerCase().includes(q)
+      e.extendedProps.demeritItem.toLowerCase().includes(q) ||
+      e.extendedProps.lawsuitCaseNumber.toLowerCase().includes(q)
     );
   });
 
@@ -857,7 +925,7 @@ export default function Home() {
               건설안전과 일정 캘린더
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              점검 및 회의 일정과 함께 벌점/과태료 부과 현황 통합 관리
+              점검 및 회의 일정과 함께 벌점/과태료 부과 및 소송 진행 현황 통합 관리
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -1069,7 +1137,7 @@ export default function Home() {
               <Search size={16} className="absolute left-3 top-3 text-slate-400" />
               <input
                 type="text"
-                placeholder="공사명, 시공사, 처분 사유, 벌점 항목 검색..."
+                placeholder="공사명, 시공사, 처분사유, 사건번호 검색..."
                 value={statsSearchQuery}
                 onChange={(e) => setStatsSearchQuery(e.target.value)}
                 className="w-full border border-slate-300 rounded-xl pl-9 pr-3 py-2 text-xs outline-none focus:border-rose-500"
@@ -1084,7 +1152,7 @@ export default function Home() {
                     <th className="p-2.5">공사명 / 현장</th>
                     <th className="p-2.5">대상 / 항목</th>
                     <th className="p-2.5 text-center">처분구분</th>
-                    <th className="p-2.5 text-right">벌점/과태료</th>
+                    <th className="p-2.5 text-right">벌점/소송</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1104,14 +1172,23 @@ export default function Home() {
                             </span>
                           )}
                           {e.extendedProps.hasFine && (
-                            <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold">
+                            <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold mr-1">
                               과태료
+                            </span>
+                          )}
+                          {e.extendedProps.hasLawsuit && (
+                            <span className="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-bold">
+                              소송중
                             </span>
                           )}
                         </td>
                         <td className="p-2.5 text-right font-semibold text-rose-600 whitespace-nowrap">
                           {e.extendedProps.hasDemerit && `${e.extendedProps.demeritScore}점 `}
-                          {e.extendedProps.hasFine && `${e.extendedProps.fineAmount}만원`}
+                          {e.extendedProps.hasLawsuit && (
+                            <span className="text-indigo-600 font-bold block text-[11px]">
+                              ⚖️ {e.extendedProps.lawsuitStatus}
+                            </span>
+                          )}
                         </td>
                       </tr>
                     ))
@@ -1278,7 +1355,6 @@ export default function Home() {
                       />
                     </div>
 
-                    {/* 7단계 주요 일정 입력 */}
                     <div className="space-y-1.5 pt-1 border-t border-rose-200/60">
                       <span className="font-bold text-rose-800 text-[11px] block">🗓️ 행정 절차 세부 일정 관리</span>
                       
@@ -1354,6 +1430,102 @@ export default function Home() {
                           className="w-full border p-1.5 rounded-lg bg-white"
                         />
                       </div>
+                    </div>
+
+                    {/* ⚖️ 행정 소송 관리 설정 영역 */}
+                    <div className="bg-indigo-50/90 border border-indigo-200 p-3 rounded-xl space-y-2 mt-2">
+                      <div className="flex items-center justify-between border-b border-indigo-200 pb-1.5">
+                        <span className="font-bold text-indigo-950 flex items-center gap-1">
+                          <Scale size={15} />
+                          행정소송 진행 관리
+                        </span>
+                        <label className="flex items-center gap-1.5 font-bold text-indigo-800">
+                          <input
+                            type="checkbox"
+                            checked={addForm.hasLawsuit}
+                            onChange={(e) => setAddForm({ ...addForm, hasLawsuit: e.target.checked })}
+                            className="rounded text-indigo-600 focus:ring-indigo-500"
+                          />
+                          소송 제기됨
+                        </label>
+                      </div>
+
+                      {addForm.hasLawsuit && (
+                        <div className="space-y-2 pt-1">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="font-semibold text-slate-700 block mb-0.5">관할 법원</label>
+                              <input
+                                type="text"
+                                placeholder="예: 서울행정법원"
+                                value={addForm.lawsuitCourt}
+                                onChange={(e) => setAddForm({ ...addForm, lawsuitCourt: e.target.value })}
+                                className="w-full border p-1.5 rounded-lg bg-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="font-semibold text-slate-700 block mb-0.5">사건 번호</label>
+                              <input
+                                type="text"
+                                placeholder="예: 2026구합12345"
+                                value={addForm.lawsuitCaseNumber}
+                                onChange={(e) => setAddForm({ ...addForm, lawsuitCaseNumber: e.target.value })}
+                                className="w-full border p-1.5 rounded-lg bg-white"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="font-semibold text-slate-700 block mb-0.5">진행 단계</label>
+                              <select
+                                value={addForm.lawsuitStatus}
+                                onChange={(e) => setAddForm({ ...addForm, lawsuitStatus: e.target.value })}
+                                className="w-full border p-1.5 rounded-lg bg-white"
+                              >
+                                <option value="소 제기(접수)">소 제기(접수)</option>
+                                <option value="변론 진행 중">변론 진행 중</option>
+                                <option value="집행정지 신청/결정">집행정지 신청/결정</option>
+                                <option value="판결 선고">판결 선고</option>
+                                <option value="항소/상고 진행">항소/상고 진행</option>
+                                <option value="종결">종결</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="font-semibold text-slate-700 block mb-0.5">담당 변호사/법인</label>
+                              <input
+                                type="text"
+                                placeholder="예: 정부법무공단"
+                                value={addForm.lawsuitLawyer}
+                                onChange={(e) => setAddForm({ ...addForm, lawsuitLawyer: e.target.value })}
+                                className="w-full border p-1.5 rounded-lg bg-white"
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="font-semibold text-slate-700 block mb-0.5">소송 결과 (선택)</label>
+                            <input
+                              type="text"
+                              placeholder="예: 승소 (원고청구기각)"
+                              value={addForm.lawsuitResult}
+                              onChange={(e) => setAddForm({ ...addForm, lawsuitResult: e.target.value })}
+                              className="w-full border p-1.5 rounded-lg bg-white"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="font-semibold text-slate-700 block mb-0.5">소송 주요 내용 메모</label>
+                            <input
+                              type="text"
+                              placeholder="변론 기일, 집행정지 가부, 주요 공방 내용"
+                              value={addForm.lawsuitNotes}
+                              onChange={(e) => setAddForm({ ...addForm, lawsuitNotes: e.target.value })}
+                              className="w-full border p-1.5 rounded-lg bg-white"
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1522,7 +1694,7 @@ export default function Home() {
                   />
                 </div>
 
-                {/* 벌점 상세 프로세스 수정 영역 */}
+                {/* 벌점 상세 프로세스 및 소송 수정 영역 */}
                 <div className="bg-rose-50/80 border border-rose-200 p-3.5 rounded-xl space-y-3">
                   <div className="flex items-center justify-between border-b border-rose-200 pb-2">
                     <span className="font-bold text-rose-900 flex items-center gap-1">
@@ -1652,6 +1824,97 @@ export default function Home() {
                           />
                         </div>
                       </div>
+
+                      {/* ⚖️ 행정 소송 수정 영역 */}
+                      <div className="bg-indigo-50/90 border border-indigo-200 p-3 rounded-xl space-y-2 mt-2">
+                        <div className="flex items-center justify-between border-b border-indigo-200 pb-1.5">
+                          <span className="font-bold text-indigo-950 flex items-center gap-1">
+                            <Scale size={15} />
+                            행정소송 진행 관리
+                          </span>
+                          <label className="flex items-center gap-1.5 font-bold text-indigo-800">
+                            <input
+                              type="checkbox"
+                              checked={editForm.hasLawsuit}
+                              onChange={(e) => setEditForm({ ...editForm, hasLawsuit: e.target.checked })}
+                              className="rounded text-indigo-600 focus:ring-indigo-500"
+                            />
+                            소송 제기됨
+                          </label>
+                        </div>
+
+                        {editForm.hasLawsuit && (
+                          <div className="space-y-2 pt-1">
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="font-semibold text-slate-700 block mb-0.5">관할 법원</label>
+                                <input
+                                  type="text"
+                                  value={editForm.lawsuitCourt || ""}
+                                  onChange={(e) => setEditForm({ ...editForm, lawsuitCourt: e.target.value })}
+                                  className="w-full border p-1.5 rounded-lg bg-white"
+                                />
+                              </div>
+                              <div>
+                                <label className="font-semibold text-slate-700 block mb-0.5">사건 번호</label>
+                                <input
+                                  type="text"
+                                  value={editForm.lawsuitCaseNumber || ""}
+                                  onChange={(e) => setEditForm({ ...editForm, lawsuitCaseNumber: e.target.value })}
+                                  className="w-full border p-1.5 rounded-lg bg-white"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="font-semibold text-slate-700 block mb-0.5">진행 단계</label>
+                                <select
+                                  value={editForm.lawsuitStatus || "소 제기(접수)"}
+                                  onChange={(e) => setEditForm({ ...editForm, lawsuitStatus: e.target.value })}
+                                  className="w-full border p-1.5 rounded-lg bg-white"
+                                >
+                                  <option value="소 제기(접수)">소 제기(접수)</option>
+                                  <option value="변론 진행 중">변론 진행 중</option>
+                                  <option value="집행정지 신청/결정">집행정지 신청/결정</option>
+                                  <option value="판결 선고">판결 선고</option>
+                                  <option value="항소/상고 진행">항소/상고 진행</option>
+                                  <option value="종결">종결</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="font-semibold text-slate-700 block mb-0.5">담당 변호사/법인</label>
+                                <input
+                                  type="text"
+                                  value={editForm.lawsuitLawyer || ""}
+                                  onChange={(e) => setEditForm({ ...editForm, lawsuitLawyer: e.target.value })}
+                                  className="w-full border p-1.5 rounded-lg bg-white"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="font-semibold text-slate-700 block mb-0.5">소송 결과</label>
+                              <input
+                                type="text"
+                                value={editForm.lawsuitResult || ""}
+                                onChange={(e) => setEditForm({ ...editForm, lawsuitResult: e.target.value })}
+                                className="w-full border p-1.5 rounded-lg bg-white"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="font-semibold text-slate-700 block mb-0.5">소송 주요 내용 메모</label>
+                              <input
+                                type="text"
+                                value={editForm.lawsuitNotes || ""}
+                                onChange={(e) => setEditForm({ ...editForm, lawsuitNotes: e.target.value })}
+                                className="w-full border p-1.5 rounded-lg bg-white"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1724,7 +1987,6 @@ export default function Home() {
                       </div>
                     )}
 
-                    {/* 타임라인형 일정 보기 */}
                     <div className="bg-white/80 p-3 rounded-lg border border-rose-100 text-xs space-y-1.5">
                       <span className="font-bold text-rose-900 block text-[11px] mb-1">📌 행정 처리 단계별 진행 일정:</span>
                       <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] text-slate-700">
@@ -1738,6 +2000,39 @@ export default function Home() {
                         <div>• 최종결과 통보일: <span className="font-semibold">{selectedEvent.extendedProps.demeritFinalResultDate || "-"}</span></div>
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {/* ⚖️ 행정 소송 진행 현황 카드 */}
+                {selectedEvent.extendedProps.hasLawsuit && (
+                  <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl space-y-2.5">
+                    <div className="flex items-center justify-between border-b border-indigo-200 pb-2">
+                      <div className="flex items-center gap-2">
+                        <Scale className="text-indigo-700 shrink-0" size={18} />
+                        <span className="font-bold text-indigo-950 text-xs">행정 소송 진행 현장</span>
+                      </div>
+                      <span className="bg-indigo-700 text-white text-xs font-bold px-2.5 py-0.5 rounded-full">
+                        {selectedEvent.extendedProps.lawsuitStatus}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs text-slate-800 font-medium">
+                      <div>• 관할 법원: <span className="font-bold">{selectedEvent.extendedProps.lawsuitCourt || "-"}</span></div>
+                      <div>• 사건 번호: <span className="font-bold text-indigo-700">{selectedEvent.extendedProps.lawsuitCaseNumber || "-"}</span></div>
+                      {selectedEvent.extendedProps.lawsuitLawyer && (
+                        <div>• 담당 변호인: <span className="font-semibold">{selectedEvent.extendedProps.lawsuitLawyer}</span></div>
+                      )}
+                      {selectedEvent.extendedProps.lawsuitResult && (
+                        <div>• 판결 결과: <span className="font-bold text-rose-600">{selectedEvent.extendedProps.lawsuitResult}</span></div>
+                      )}
+                    </div>
+
+                    {selectedEvent.extendedProps.lawsuitNotes && (
+                      <div className="bg-white/80 p-2.5 rounded-lg border border-indigo-100 text-xs text-slate-700">
+                        <span className="font-bold text-indigo-900 block mb-0.5">소송 기일 및 주요 내용:</span>
+                        <p className="whitespace-pre-wrap">{selectedEvent.extendedProps.lawsuitNotes}</p>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1769,6 +2064,13 @@ export default function Home() {
                     <span className="font-bold text-emerald-600">{selectedEvent.start}</span>
                   </div>
                 </div>
+
+                {selectedEvent.extendedProps.penaltyReason && (
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
+                    <span className="font-bold text-slate-700 block mb-1">처분 사유 / 지적 내용</span>
+                    <p className="text-rose-700 font-semibold">{selectedEvent.extendedProps.penaltyReason}</p>
+                  </div>
+                )}
 
                 {selectedEvent.extendedProps.address && (
                   <div className="flex items-start gap-3">
