@@ -67,12 +67,10 @@ interface CalendarEvent {
     checkDate: string;
     eventType: string;
     
-    // 과태료
     hasFine: boolean;
     fineAmount: string;
     penaltyReason: string;
 
-    // 벌점 행정 절차
     hasDemerit: boolean;            
     demeritTarget: string;          
     demeritItem: string;            
@@ -88,7 +86,6 @@ interface CalendarEvent {
     demeritCommitteeDate: string;   
     demeritFinalResultDate: string; 
 
-    // 행정 소송 관리
     hasLawsuit: boolean;            
     lawsuitCourt: string;           
     lawsuitCaseNumber: string;      
@@ -111,12 +108,10 @@ const TEAM_COLORS: Record<string, string> = {
   "기타일정": "#64748B",          
 };
 
-// 2010년부터 과거/미래 연도 날짜를 명확히 파싱
 const parseCheckDate = (val: any): string => {
   if (!val) return "";
   const strVal = String(val).trim();
 
-  // YYYY-MM-DD / YYYY.MM.DD / YYYY/MM/DD 완벽 추출 (2010년 이상)
   const ymdMatch = strVal.match(/^(\d{4})[\.\/-](\d{1,2})[\.\/-](\d{1,2})[\.]?$/);
   if (ymdMatch) {
     const y = ymdMatch[1];
@@ -129,8 +124,7 @@ const parseCheckDate = (val: any): string => {
   if (mmddMatch) {
     const m = String(mmddMatch[1]).padStart(2, "0");
     const d = String(mmddMatch[2]).padStart(2, "0");
-    const currentYear = new Date().getFullYear();
-    return `${currentYear}-${m}-${d}`;
+    return `2024-${m}-${d}`;
   }
 
   if (typeof val === "number") {
@@ -181,7 +175,6 @@ const formatDate = (val: any): string => {
   return str || "-";
 };
 
-// 2010년부터 2030년까지 선택 가능한 연도 목록 생성
 const YEARS_LIST = Array.from({ length: 21 }, (_, i) => String(2010 + i));
 
 export default function Home() {
@@ -195,12 +188,10 @@ export default function Home() {
   const [deleteMonth, setDeleteMonth] = useState<string>("2024-01");
   const [isLoading, setIsLoading] = useState(false);
 
-  // 모달 제어
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
 
-  // 새 일정 직접 추가 모달
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addForm, setAddForm] = useState({
     category: "기타일정",
@@ -236,12 +227,12 @@ export default function Home() {
     lawsuitNotes: "",
   });
 
-  // 벌점/과태료 통계 모달 & 기간별 필터
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
   const [statsYearFilter, setStatsYearFilter] = useState("all");
   const [statsMonthFilter, setStatsMonthFilter] = useState("all");
   const [statsSearchQuery, setStatsSearchQuery] = useState("");
 
+  const calendarRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchEvents = async () => {
@@ -251,7 +242,10 @@ export default function Home() {
     setIsLoading(true);
     try {
       const { data, error } = await supabase.from("events").select("*");
-      if (error) throw error;
+      if (error) {
+        alert(`[Supabase DB 로딩 실패]\n${error.message}`);
+        throw error;
+      }
 
       if (data && data.length > 0) {
         const dbEvents: CalendarEvent[] = data.map((item: any) => {
@@ -425,7 +419,7 @@ export default function Home() {
     const supabase = getSupabaseClient();
     if (supabase) {
       try {
-        await supabase.from("events").insert([
+        const { error } = await supabase.from("events").insert([
           {
             title: baseTitle,
             start_date: addForm.date,
@@ -466,14 +460,23 @@ export default function Home() {
             lawsuit_notes: addForm.lawsuitNotes,
           },
         ]);
-        await fetchEvents();
-      } catch (err) {
-        console.error("DB 저장 에러:", err);
+
+        if (error) {
+          alert(`[DB 저장 실패 원인]\n${error.message}\n\n1단계의 SQL 쿼리를 실행하여 DB 테이블 권한을 수정해 주세요.`);
+        } else {
+          await fetchEvents();
+        }
+      } catch (err: any) {
+        alert(`[DB 연결 오류] ${err.message || err}`);
       }
     }
 
+    if (calendarRef.current) {
+      calendarRef.current.getApi().gotoDate(addForm.date);
+    }
+
     setIsAddModalOpen(false);
-    alert("새 일정이 성공적으로 추가되었습니다!");
+    alert(`[${addForm.date}] 날짜로 새 일정이 추가되었습니다! 해당 연/월 달력 위치로 이동합니다.`);
   };
 
   const handleClearDatabase = async () => {
@@ -999,7 +1002,6 @@ export default function Home() {
               />
             </button>
 
-            {/* 과거 2010년부터 연도 선택 삭제 지원 */}
             <div className="flex items-center border border-slate-300 rounded-xl overflow-hidden bg-slate-50">
               <select
                 value={deleteMonth}
@@ -1092,6 +1094,7 @@ export default function Home() {
 
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <FullCalendar
+            ref={calendarRef}
             plugins={[dayGridPlugin, interactionPlugin]}
             initialView="dayGridMonth"
             locale="ko"
@@ -1107,7 +1110,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 📊 벌점·과태료 부과 현황 통계 대시보드 모달 (2010년~2030년 확장) */}
+      {/* 📊 벌점·과태료 부과 현황 통계 대시보드 모달 */}
       {isStatsModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 space-y-5 max-h-[90vh] overflow-y-auto">
@@ -1127,11 +1130,10 @@ export default function Home() {
             <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3">
               <span className="text-xs font-bold text-slate-700">통계 기간 선택:</span>
               <div className="flex items-center gap-2 text-xs">
-                {/* 2010년부터 2030년까지 선택 가능 */}
                 <select
                   value={statsYearFilter}
                   onChange={(e) => setStatsYearFilter(e.target.value)}
-                  className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 font-semibold text-slate-800 outline-none focus:border-rose-500 max-h-32 overflow-y-auto"
+                  className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 font-semibold text-slate-800 outline-none focus:border-rose-500"
                 >
                   <option value="all">전체 연도</option>
                   {YEARS_LIST.map((y) => (
@@ -1342,7 +1344,6 @@ export default function Home() {
                 />
               </div>
 
-              {/* 🚨 벌점 행정 처분 조건부 프로세스 입력 영역 */}
               <div className="bg-rose-50/80 border border-rose-200 p-3.5 rounded-xl space-y-3">
                 <div className="flex items-center justify-between border-b border-rose-200 pb-2">
                   <span className="font-bold text-rose-900 flex items-center gap-1">
@@ -1789,7 +1790,6 @@ export default function Home() {
                   />
                 </div>
 
-                {/* 벌점 상세 프로세스 및 소송 수정 영역 */}
                 <div className="bg-rose-50/80 border border-rose-200 p-3.5 rounded-xl space-y-3">
                   <div className="flex items-center justify-between border-b border-rose-200 pb-2">
                     <span className="font-bold text-rose-900 flex items-center gap-1">
@@ -1843,7 +1843,6 @@ export default function Home() {
                         />
                       </div>
 
-                      {/* 사전통지 및 의견검토 분기 수정 */}
                       <div className="space-y-2 pt-1 border-t border-rose-200/60">
                         <span className="font-bold text-rose-800 text-[11px] block">1단계: 사전통지 및 의견제출 결과</span>
                         
@@ -1973,7 +1972,6 @@ export default function Home() {
                         )}
                       </div>
 
-                      {/* ⚖️ 행정 소송 수정 영역 */}
                       <div className="bg-indigo-50/90 border border-indigo-200 p-3 rounded-xl space-y-2 mt-2">
                         <div className="flex items-center justify-between border-b border-indigo-200 pb-1.5">
                           <span className="font-bold text-indigo-950 flex items-center gap-1">
@@ -2067,7 +2065,6 @@ export default function Home() {
                   )}
                 </div>
 
-                {/* 과태료 수정 영역 */}
                 <div className="bg-purple-50/80 border border-purple-200 p-3 rounded-xl space-y-2">
                   <label className="flex items-center gap-1.5 font-bold text-purple-900">
                     <input
@@ -2115,7 +2112,6 @@ export default function Home() {
               </div>
             ) : (
               <div className="space-y-4 text-sm">
-                {/* 🚨 벌점 상세 프로세스 열람 카드 */}
                 {selectedEvent.extendedProps.hasDemerit && (
                   <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl space-y-3">
                     <div className="flex items-center justify-between border-b border-rose-200 pb-2">
@@ -2128,7 +2124,6 @@ export default function Home() {
                       </span>
                     </div>
 
-                    {/* 절차 상태 라벨 배지 */}
                     <div className="flex flex-wrap gap-1.5">
                       {selectedEvent.extendedProps.opinionResult === "수용(종결)" ? (
                         <span className="bg-emerald-100 text-emerald-800 text-[11px] font-bold px-2 py-0.5 rounded border border-emerald-200">
@@ -2180,7 +2175,6 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* ⚖️ 행정 소송 진행 현황 카드 */}
                 {selectedEvent.extendedProps.hasLawsuit && (
                   <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl space-y-2.5">
                     <div className="flex items-center justify-between border-b border-indigo-200 pb-2">
@@ -2213,7 +2207,6 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* 과태료 부과 정보 카드 */}
                 {selectedEvent.extendedProps.hasFine && (
                   <div className="bg-purple-50 border border-purple-200 p-3.5 rounded-xl flex items-center justify-between text-xs">
                     <div>
