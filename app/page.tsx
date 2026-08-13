@@ -29,6 +29,7 @@ import {
   HardHat,
   ShieldCheck,
   Plus,
+  Users,
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -45,15 +46,25 @@ const getSupabaseClient = () => {
   return null;
 };
 
-// 개별 벌점 항목 인터페이스
+// 개별 벌점 항목
 interface DemeritItemDetail {
   id: string;
   content: string; // 지적 항목 내용
-  score: string;   // 해당 항목 벌점 점수
+  score: string;   // 해당 항목 기준 벌점 점수
+}
+
+// 공동도급 구성원 및 지분율 분할 벌점
+interface JointMember {
+  id: string;
+  name: string;    // 업체명 (예: 계룡건설산업)
+  ratio: string;   // 출자비율(%) (예: 49.8)
+  assignedScore: string; // 지분율 반영 부과 벌점
 }
 
 interface DemeritProc {
+  contractType: string; // '단독' | '공동이행(지분율분할)' | '분담이행'
   items: DemeritItemDetail[]; // 복수 벌점 항목
+  jointMembers: JointMember[]; // 공동수급체 구성원 목록
   noticeDate: string;
   opinionDeadline: string;
   opinionResult: string; // '미제출' | '불수용' | '수용(종결)'
@@ -198,7 +209,9 @@ const formatDate = (val: any): string => {
 const YEARS_LIST = Array.from({ length: 21 }, (_, i) => String(2010 + i));
 
 const defaultDemeritProc = (): DemeritProc => ({
+  contractType: "단독",
   items: [{ id: "1", content: "", score: "" }],
+  jointMembers: [{ id: "1", name: "", ratio: "100", assignedScore: "" }],
   noticeDate: "",
   opinionDeadline: "",
   opinionResult: "미제출",
@@ -210,7 +223,6 @@ const defaultDemeritProc = (): DemeritProc => ({
   finalResultDate: "",
 });
 
-// 외부 독립 컴포넌트: 벌점 입력
 function DemeritProcInputs({
   title,
   icon,
@@ -223,6 +235,7 @@ function DemeritProcInputs({
   onChange: (updated: DemeritProc) => void;
 }) {
   const safeItems = proc?.items && proc.items.length > 0 ? proc.items : [{ id: "1", content: "", score: "" }];
+  const safeMembers = proc?.jointMembers && proc.jointMembers.length > 0 ? proc.jointMembers : [{ id: "1", name: "", ratio: "100", assignedScore: "" }];
 
   const handleAddItem = () => {
     const newItem: DemeritItemDetail = { id: String(Date.now()), content: "", score: "" };
@@ -239,7 +252,21 @@ function DemeritProcInputs({
     onChange({ ...proc, items: updatedItems });
   };
 
-  // 총 벌점 계산
+  const handleAddMember = () => {
+    const newMember: JointMember = { id: String(Date.now()), name: "", ratio: "", assignedScore: "" };
+    onChange({ ...proc, jointMembers: [...safeMembers, newMember] });
+  };
+
+  const handleRemoveMember = (id: string) => {
+    if (safeMembers.length <= 1) return;
+    onChange({ ...proc, jointMembers: safeMembers.filter((m) => m.id !== id) });
+  };
+
+  const handleMemberChange = (id: string, field: keyof JointMember, val: string) => {
+    const updatedMembers = safeMembers.map((m) => (m.id === id ? { ...m, [field]: val } : m));
+    onChange({ ...proc, jointMembers: updatedMembers });
+  };
+
   const totalScore = safeItems
     .reduce((acc, curr) => acc + (parseFloat(curr.score) || 0), 0)
     .toFixed(1);
@@ -252,9 +279,84 @@ function DemeritProcInputs({
           {title} 벌점 세부 절차
         </span>
         <span className="bg-rose-100 text-rose-800 text-[11px] font-bold px-2 py-0.5 rounded">
-          총 벌점: {totalScore}점
+          기준 벌점 합계: {totalScore}점
         </span>
       </div>
+
+      {/* 도급 형태 선택 */}
+      <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 flex items-center justify-between">
+        <span className="font-bold text-slate-700 text-[11px] flex items-center gap-1">
+          <Users size={14} className="text-slate-500" />
+          도급 형태 선택:
+        </span>
+        <select
+          value={proc.contractType || "단독"}
+          onChange={(e) => onChange({ ...proc, contractType: e.target.value })}
+          className="border p-1 rounded bg-white font-bold text-xs outline-none"
+        >
+          <option value="단독">단독 도급</option>
+          <option value="공동이행(지분율분할)">공동이행방식 (지분율 분할부과)</option>
+          <option value="분담이행">분담이행방식 (해당업체 직접부과)</option>
+        </select>
+      </div>
+
+      {/* 공동이행방식일 경우 수급체 구성원 및 지분율 입력 */}
+      {proc.contractType === "공동이행(지분율분할)" && (
+        <div className="bg-amber-50/70 p-2.5 rounded-lg border border-amber-200 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="font-bold text-amber-900 text-[11px]">
+              🤝 공동수급체 구성원 및 지분율 분할 벌점
+            </span>
+            <button
+              type="button"
+              onClick={handleAddMember}
+              className="flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-white border border-amber-300 px-2 py-0.5 rounded hover:bg-amber-100 transition"
+            >
+              <Plus size={11} /> 구성원 추가
+            </button>
+          </div>
+
+          <div className="space-y-1.5">
+            {safeMembers.map((mem, idx) => (
+              <div key={mem.id} className="flex items-center gap-1.5 bg-white p-1.5 rounded border border-amber-200">
+                <span className="font-bold text-slate-500 text-[10px] shrink-0">{idx + 1}.</span>
+                <input
+                  type="text"
+                  placeholder="업체명 (예: 계룡건설)"
+                  value={mem.name}
+                  onChange={(e) => handleMemberChange(mem.id, "name", e.target.value)}
+                  className="w-full border p-1 rounded text-xs outline-none"
+                />
+                <input
+                  type="text"
+                  placeholder="지분율(%)"
+                  value={mem.ratio}
+                  onChange={(e) => handleMemberChange(mem.id, "ratio", e.target.value)}
+                  className="w-16 border p-1 rounded text-xs outline-none text-right"
+                />
+                <span className="text-[10px] text-slate-500 font-bold shrink-0">%</span>
+                <input
+                  type="text"
+                  placeholder="부과점수"
+                  value={mem.assignedScore}
+                  onChange={(e) => handleMemberChange(mem.id, "assignedScore", e.target.value)}
+                  className="w-20 border p-1 rounded text-xs outline-none text-right font-bold text-rose-700 bg-rose-50/30"
+                />
+                <span className="text-[10px] text-rose-700 font-bold shrink-0">점</span>
+                {safeMembers.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveMember(mem.id)}
+                    className="text-rose-500 hover:text-rose-700 p-0.5 shrink-0"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 동적 복수 벌점 항목 리스트 */}
       <div className="space-y-2">
@@ -298,10 +400,10 @@ function DemeritProcInputs({
             />
 
             <div className="flex items-center gap-2">
-              <span className="text-[11px] font-semibold text-slate-600 shrink-0">부과 벌점:</span>
+              <span className="text-[11px] font-semibold text-slate-600 shrink-0">기준 벌점:</span>
               <input
                 type="text"
-                placeholder="예: 3 (숫자 입력)"
+                placeholder="예: 3"
                 value={item.score}
                 onChange={(e) => handleItemChange(item.id, "score", e.target.value)}
                 className="w-full border p-1 rounded bg-white text-xs outline-none focus:border-rose-400"
@@ -444,28 +546,41 @@ function DemeritProcInputs({
   );
 }
 
-// 외부 독립 컴포넌트: 벌점 상세 열람 카드
 function DemeritDisplayCard({ title, icon, proc }: { title: string; icon: React.ReactNode; proc: DemeritProc }) {
   if (!proc) return null;
   const safeItems = proc.items && proc.items.length > 0 ? proc.items : [];
-  
+  const safeMembers = proc.jointMembers && proc.jointMembers.length > 0 ? proc.jointMembers : [];
+
   const totalScore = safeItems
     .reduce((acc, curr) => acc + (parseFloat(curr.score) || 0), 0)
     .toFixed(1);
-
-  if (safeItems.length === 0 && !totalScore) return null;
 
   return (
     <div className="bg-white/90 p-3 rounded-xl border border-rose-200 text-xs space-y-2">
       <div className="flex items-center justify-between border-b border-rose-100 pb-1.5">
         <span className="font-bold text-rose-950 flex items-center gap-1 text-xs">
           {icon}
-          {title} 벌점 처분
+          {title} 벌점 처분 ({proc.contractType || "단독"})
         </span>
         <span className="bg-rose-600 text-white font-black text-[11px] px-2.5 py-0.5 rounded-full">
-          합계 {totalScore}점
+          기준합계 {totalScore}점
         </span>
       </div>
+
+      {/* 공동이행방식 분할 벌점 표출 */}
+      {proc.contractType === "공동이행(지분율분할)" && safeMembers.length > 0 && (
+        <div className="bg-amber-50 p-2 rounded-lg border border-amber-200 space-y-1">
+          <span className="font-bold text-amber-900 block text-[11px]">🤝 공동수급체 구성원별 분할 부과 벌점:</span>
+          <div className="grid grid-cols-2 gap-1 text-[11px]">
+            {safeMembers.map((m) => (
+              <div key={m.id} className="bg-white p-1 rounded border border-amber-100 flex justify-between font-semibold">
+                <span>{m.name || "업체명미입력"} ({m.ratio}%)</span>
+                <span className="text-rose-700 font-bold">{m.assignedScore || "0"}점</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-1">
         {proc.opinionResult === "수용(종결)" ? (
@@ -483,7 +598,7 @@ function DemeritDisplayCard({ title, icon, proc }: { title: string; icon: React.
         )}
       </div>
 
-      {/* 복수 벌점 항목 및 개별 점수 목록 */}
+      {/* 복수 벌점 항목 리스트 */}
       {safeItems.length > 0 && (
         <div className="space-y-1">
           <span className="font-bold text-rose-900 block text-[11px]">지적 및 벌점 항목 세부:</span>
@@ -587,6 +702,16 @@ export default function Home() {
     return [{ id: "1", content: defaultItemStr || "", score: defaultScoreStr || "" }];
   };
 
+  const parseJointMembersJson = (jsonStr: any): JointMember[] => {
+    try {
+      if (jsonStr && typeof jsonStr === "string" && jsonStr.startsWith("[")) {
+        const parsed = JSON.parse(jsonStr);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [{ id: "1", name: "", ratio: "100", assignedScore: "" }];
+  };
+
   const fetchEvents = async () => {
     const supabase = getSupabaseClient();
     if (!supabase) return;
@@ -648,7 +773,9 @@ export default function Home() {
               demeritTarget: item.demerit_target || "시공사 및 감리사",
               
               builderDemerit: {
+                contractType: item.builder_contract_type || "단독",
                 items: parseDemeritItemsJson(item.builder_demerit_item, item.demerit_item, item.builder_demerit_score || item.demerit_score),
+                jointMembers: parseJointMembersJson(item.builder_joint_members),
                 noticeDate: item.builder_demerit_notice_date || item.demerit_notice_date || "",
                 opinionDeadline: item.builder_demerit_opinion_deadline || item.demerit_opinion_deadline || "",
                 opinionResult: item.builder_opinion_result || item.opinion_result || "미제출",
@@ -661,7 +788,9 @@ export default function Home() {
               },
 
               supervisorDemerit: {
+                contractType: item.supervisor_contract_type || "단독",
                 items: parseDemeritItemsJson(item.supervisor_demerit_item, "", item.supervisor_demerit_score),
+                jointMembers: parseJointMembersJson(item.supervisor_joint_members),
                 noticeDate: item.supervisor_demerit_notice_date || "",
                 opinionDeadline: item.supervisor_demerit_opinion_deadline || "",
                 opinionResult: item.supervisor_opinion_result || "미제출",
@@ -795,8 +924,9 @@ export default function Home() {
             has_demerit: addForm.hasDemerit,
             demerit_target: addForm.demeritTarget,
 
-            // 복수 항목 JSON 형태로 DB 저장
+            builder_contract_type: addForm.builderDemerit.contractType,
             builder_demerit_item: JSON.stringify(addForm.builderDemerit.items),
+            builder_joint_members: JSON.stringify(addForm.builderDemerit.jointMembers),
             builder_demerit_notice_date: addForm.builderDemerit.noticeDate,
             builder_demerit_opinion_deadline: addForm.builderDemerit.opinionDeadline,
             builder_opinion_result: addForm.builderDemerit.opinionResult,
@@ -807,7 +937,9 @@ export default function Home() {
             builder_demerit_committee_date: addForm.builderDemerit.committeeDate,
             builder_demerit_final_result_date: addForm.builderDemerit.finalResultDate,
 
+            supervisor_contract_type: addForm.supervisorDemerit.contractType,
             supervisor_demerit_item: JSON.stringify(addForm.supervisorDemerit.items),
+            supervisor_joint_members: JSON.stringify(addForm.supervisorDemerit.jointMembers),
             supervisor_demerit_notice_date: addForm.supervisorDemerit.noticeDate,
             supervisor_demerit_opinion_deadline: addForm.supervisorDemerit.opinionDeadline,
             supervisor_opinion_result: addForm.supervisorDemerit.opinionResult,
@@ -1186,7 +1318,9 @@ export default function Home() {
               has_demerit: editForm.hasDemerit,
               demerit_target: editForm.demeritTarget,
 
+              builder_contract_type: editForm.builderDemerit?.contractType,
               builder_demerit_item: JSON.stringify(editForm.builderDemerit?.items || []),
+              builder_joint_members: JSON.stringify(editForm.builderDemerit?.jointMembers || []),
               builder_demerit_notice_date: editForm.builderDemerit?.noticeDate,
               builder_demerit_opinion_deadline: editForm.builderDemerit?.opinionDeadline,
               builder_opinion_result: editForm.builderDemerit?.opinionResult,
@@ -1197,7 +1331,9 @@ export default function Home() {
               builder_demerit_committee_date: editForm.builderDemerit?.committeeDate,
               builder_demerit_final_result_date: editForm.builderDemerit?.finalResultDate,
 
+              supervisor_contract_type: editForm.supervisorDemerit?.contractType,
               supervisor_demerit_item: JSON.stringify(editForm.supervisorDemerit?.items || []),
+              supervisor_joint_members: JSON.stringify(editForm.supervisorDemerit?.jointMembers || []),
               supervisor_demerit_notice_date: editForm.supervisorDemerit?.noticeDate,
               supervisor_demerit_opinion_deadline: editForm.supervisorDemerit?.opinionDeadline,
               supervisor_opinion_result: editForm.supervisorDemerit?.opinionResult,
@@ -1331,7 +1467,7 @@ export default function Home() {
               건설안전과 일정 캘린더
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              시공사/감리사 분리 벌점 관리 및 과태료/소송 통합 대시보드
+              공동도급 분할벌점 및 시공사/감리사 세부 행정처분 통합 관리
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
