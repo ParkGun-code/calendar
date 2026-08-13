@@ -26,7 +26,6 @@ import {
   Search,
   Scale,
   CheckCircle2,
-  XCircle,
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -80,12 +79,12 @@ interface CalendarEvent {
     demeritScore: string;           
     demeritNoticeDate: string;      
     demeritOpinionDeadline: string; 
-    hasOpinionSubmitted: boolean;    // 의견제출 여부
-    opinionResult: string;           // 의견검토 결과 ('수용(종결)', '불수용', '미제출')
+    hasOpinionSubmitted: boolean;
+    opinionResult: string;          
     demeritReviewMeetingDate: string;
     demeritNoticeResultDate: string;
     demeritAppealDeadline: string;  
-    hasAppealSubmitted: boolean;     // 이의제기 제출 여부
+    hasAppealSubmitted: boolean;    
     demeritCommitteeDate: string;   
     demeritFinalResultDate: string; 
 
@@ -101,15 +100,15 @@ interface CalendarEvent {
 }
 
 const TEAM_COLORS: Record<string, string> = {
-  "1조": "#60A5FA",          // 파스텔 블루
-  "2조": "#34D399",          // 파스텔 민트
-  "3조": "#FBBF24",          // 파스텔 앰버
-  "TF1조": "#A78BFA",        // 파스텔 퍼플
-  "TF2조": "#F472B6",        // 파스텔 핑크
-  "현장점검 결과회의": "#10B981",  // 에메랄드 그린
-  "의견제출 검토회의": "#6366F1",  // 인디고 블루
-  "벌점심의위원회": "#EF4444",    // 인텐스 레드
-  "기타일정": "#64748B",          // 슬레이트 그레이
+  "1조": "#60A5FA",          
+  "2조": "#34D399",          
+  "3조": "#FBBF24",          
+  "TF1조": "#A78BFA",        
+  "TF2조": "#F472B6",        
+  "현장점검 결과회의": "#10B981",  
+  "의견제출 검토회의": "#6366F1",  
+  "벌점심의위원회": "#EF4444",    
+  "기타일정": "#64748B",          
 };
 
 const parseCheckDate = (val: any): string => {
@@ -182,12 +181,10 @@ export default function Home() {
   const [deleteMonth, setDeleteMonth] = useState<string>("2026-05");
   const [isLoading, setIsLoading] = useState(false);
 
-  // 모달 제어
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
 
-  // 새 일정 직접 추가 모달
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addForm, setAddForm] = useState({
     category: "기타일정",
@@ -199,7 +196,6 @@ export default function Home() {
     fineAmount: "",
     penaltyReason: "",
 
-    // 벌점 프로세스
     hasDemerit: false,
     demeritTarget: "시공사",
     demeritItem: "",
@@ -215,7 +211,6 @@ export default function Home() {
     demeritCommitteeDate: "",
     demeritFinalResultDate: "",
 
-    // 소송 정보
     hasLawsuit: false,
     lawsuitCourt: "",
     lawsuitCaseNumber: "",
@@ -225,7 +220,6 @@ export default function Home() {
     lawsuitNotes: "",
   });
 
-  // 벌점/과태료 통계 모달 & 기간별 필터
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
   const [statsYearFilter, setStatsYearFilter] = useState("all");
   const [statsMonthFilter, setStatsMonthFilter] = useState("all");
@@ -244,26 +238,32 @@ export default function Home() {
 
       if (data && data.length > 0) {
         const dbEvents: CalendarEvent[] = data.map((item: any) => {
-          const category = item.category || item.team || "1조";
-          const color = TEAM_COLORS[category] || TEAM_COLORS[item.team] || "#60A5FA";
+          const category = item.category || item.team || "기타일정";
+          const color = TEAM_COLORS[category] || TEAM_COLORS[item.team] || "#64748B";
           
-          let displayTitle = item.title || "일정";
-          if (item.has_demerit) displayTitle = `⚠️ ${displayTitle}`;
-          if (item.has_fine) displayTitle = `💸 ${displayTitle}`;
-          if (item.has_lawsuit) displayTitle = `⚖️ ${displayTitle}`;
+          const isDemerit = item.has_demerit === true || item.has_demerit === "true" || item.has_demerit === 1;
+          const isFine = item.has_fine === true || item.has_fine === "true" || item.has_fine === 1;
+          const isLawsuit = item.has_lawsuit === true || item.has_lawsuit === "true" || item.has_lawsuit === 1;
+
+          let displayTitle = item.title || item.location || "일정";
+          if (isDemerit && !displayTitle.includes("⚠️")) displayTitle = `⚠️ ${displayTitle}`;
+          if (isFine && !displayTitle.includes("💸")) displayTitle = `💸 ${displayTitle}`;
+          if (isLawsuit && !displayTitle.includes("⚖️")) displayTitle = `⚖️ ${displayTitle}`;
+
+          const validStartDate = parseCheckDate(item.start_date) || item.start_date;
 
           return {
             id: String(item.id),
             title: displayTitle,
-            start: item.start_date,
+            start: validStartDate,
             backgroundColor: color,
             borderColor: color,
             extendedProps: {
               seq: item.seq || "",
               orderType: item.order_type || "",
-              category: item.category || "",
+              category,
               client: item.client || "",
-              projectName: item.location || "",
+              projectName: item.location || item.title || "",
               address: item.address || "",
               startDate: item.start_date_work || "",
               endDate: item.end_date_work || "",
@@ -274,14 +274,14 @@ export default function Home() {
               agentEmail: item.agent_email || "",
               progressStatus: item.notes || "",
               team: item.team || "기타일정",
-              checkDate: item.start_date || "",
+              checkDate: validStartDate,
               eventType: item.order_type || "meeting",
               
-              hasFine: !!item.has_fine,
+              hasFine: isFine,
               fineAmount: item.fine_amount || "",
               penaltyReason: item.penalty_reason || "",
 
-              hasDemerit: !!item.has_demerit,
+              hasDemerit: isDemerit,
               demeritTarget: item.demerit_target || "시공사",
               demeritItem: item.demerit_item || "",
               demeritScore: item.demerit_score || "",
@@ -296,7 +296,7 @@ export default function Home() {
               demeritCommitteeDate: item.demerit_committee_date || "",
               demeritFinalResultDate: item.demerit_final_result_date || "",
 
-              hasLawsuit: !!item.has_lawsuit,
+              hasLawsuit: isLawsuit,
               lawsuitCourt: item.lawsuit_court || "",
               lawsuitCaseNumber: item.lawsuit_case_number || "",
               lawsuitStatus: item.lawsuit_status || "소 제기(접수)",
@@ -1380,7 +1380,6 @@ export default function Home() {
                       />
                     </div>
 
-                    {/* 조건부 진행 단계 1: 사전통지 & 의견제출 수용 여부 */}
                     <div className="space-y-2 pt-1 border-t border-rose-200/60">
                       <span className="font-bold text-rose-800 text-[11px] block">1단계: 사전통지 및 의견제출 결과</span>
                       
@@ -1421,7 +1420,7 @@ export default function Home() {
                       {addForm.opinionResult === "수용(종결)" ? (
                         <div className="bg-emerald-50 text-emerald-800 p-2.5 rounded-lg border border-emerald-200 text-[11px] font-bold flex items-center gap-1.5">
                           <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-                          의견이 수용되어 벌점 부과 절차가 종결되었습니다. (이후 일정 스킵)
+                          의견이 수용되어 절차가 종결되었습니다.
                         </div>
                       ) : (
                         <>
@@ -1446,7 +1445,6 @@ export default function Home() {
                             </div>
                           </div>
 
-                          {/* 조건부 진행 단계 2: 이의제기 여부 */}
                           <div className="space-y-2 pt-2 border-t border-rose-200/60">
                             <span className="font-bold text-rose-800 text-[11px] block">2단계: 이의제기 및 외부심의회</span>
                             
@@ -1511,7 +1509,6 @@ export default function Home() {
                       )}
                     </div>
 
-                    {/* ⚖️ 행정 소송 관리 설정 영역 */}
                     <div className="bg-indigo-50/90 border border-indigo-200 p-3 rounded-xl space-y-2 mt-2">
                       <div className="flex items-center justify-between border-b border-indigo-200 pb-1.5">
                         <span className="font-bold text-indigo-950 flex items-center gap-1">
@@ -1583,7 +1580,7 @@ export default function Home() {
                           </div>
 
                           <div>
-                            <label className="font-semibold text-slate-700 block mb-0.5">소송 결과 (선택)</label>
+                            <label className="font-semibold text-slate-700 block mb-0.5">소송 결과</label>
                             <input
                               type="text"
                               placeholder="예: 승소 (원고청구기각)"
@@ -1610,7 +1607,6 @@ export default function Home() {
                 )}
               </div>
 
-              {/* 과태료 부과 서브 설정 */}
               <div className="bg-purple-50/80 border border-purple-200 p-3 rounded-xl space-y-2">
                 <label className="flex items-center gap-1.5 font-bold text-purple-900">
                   <input
@@ -1773,7 +1769,7 @@ export default function Home() {
                   />
                 </div>
 
-                {/* 벌점 상세 프로세스 수정 영역 */}
+                {/* 벌점 상세 프로세스 및 소송 수정 영역 */}
                 <div className="bg-rose-50/80 border border-rose-200 p-3.5 rounded-xl space-y-3">
                   <div className="flex items-center justify-between border-b border-rose-200 pb-2">
                     <span className="font-bold text-rose-900 flex items-center gap-1">
@@ -1868,7 +1864,7 @@ export default function Home() {
                         {editForm.opinionResult === "수용(종결)" ? (
                           <div className="bg-emerald-50 text-emerald-800 p-2.5 rounded-lg border border-emerald-200 text-[11px] font-bold flex items-center gap-1.5">
                             <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-                            의견이 수용되어 절차가 종결되었습니다. (이후 일정 스킵)
+                            의견이 수용되어 절차가 종결되었습니다.
                           </div>
                         ) : (
                           <>
