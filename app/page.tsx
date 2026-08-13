@@ -30,6 +30,7 @@ import {
   ShieldCheck,
   Plus,
   Users,
+  Download,
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -283,7 +284,6 @@ function DemeritProcInputs({
         </span>
       </div>
 
-      {/* 도급 형태 선택 */}
       <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 flex items-center justify-between">
         <span className="font-bold text-slate-700 text-[11px] flex items-center gap-1">
           <Users size={14} className="text-slate-500" />
@@ -300,7 +300,6 @@ function DemeritProcInputs({
         </select>
       </div>
 
-      {/* 공동이행방식일 경우 수급체 구성원 및 지분율 입력 */}
       {proc.contractType === "공동이행(지분율분할)" && (
         <div className="bg-amber-50/70 p-2.5 rounded-lg border border-amber-200 space-y-2">
           <div className="flex items-center justify-between">
@@ -358,7 +357,6 @@ function DemeritProcInputs({
         </div>
       )}
 
-      {/* 동적 복수 벌점 항목 리스트 */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <label className="font-bold text-slate-700 text-[11px]">
@@ -567,7 +565,6 @@ function DemeritDisplayCard({ title, icon, proc }: { title: string; icon: React.
         </span>
       </div>
 
-      {/* 공동이행방식 분할 벌점 표출 */}
       {proc.contractType === "공동이행(지분율분할)" && safeMembers.length > 0 && (
         <div className="bg-amber-50 p-2 rounded-lg border border-amber-200 space-y-1">
           <span className="font-bold text-amber-900 block text-[11px]">🤝 공동수급체 구성원별 분할 부과 벌점:</span>
@@ -598,7 +595,6 @@ function DemeritDisplayCard({ title, icon, proc }: { title: string; icon: React.
         )}
       </div>
 
-      {/* 복수 벌점 항목 리스트 */}
       {safeItems.length > 0 && (
         <div className="space-y-1">
           <span className="font-bold text-rose-900 block text-[11px]">지적 및 벌점 항목 세부:</span>
@@ -684,7 +680,9 @@ export default function Home() {
     lawsuitNotes: "",
   });
 
+  // 통계 모달 탭 상태
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
+  const [statsTab, setStatsTab] = useState<"demerit" | "fine">("demerit");
   const [statsYearFilter, setStatsYearFilter] = useState("all");
   const [statsMonthFilter, setStatsMonthFilter] = useState("all");
   const [statsSearchQuery, setStatsSearchQuery] = useState("");
@@ -1362,11 +1360,11 @@ export default function Home() {
     alert("수정사항이 저장되었습니다.");
   };
 
-  const penaltyEvents = events.filter(
-    (e) => e.extendedProps.hasDemerit || e.extendedProps.hasFine
-  );
+  // 벌점 / 과태료 전용 데이터 필터링
+  const demeritEvents = events.filter((e) => e.extendedProps.hasDemerit);
+  const fineEvents = events.filter((e) => e.extendedProps.hasFine);
 
-  const periodFilteredPenaltyEvents = penaltyEvents.filter((e) => {
+  const periodDemeritEvents = demeritEvents.filter((e) => {
     if (!e.start) return false;
     const [y, m] = e.start.split("-");
     if (statsYearFilter !== "all" && y !== statsYearFilter) return false;
@@ -1374,7 +1372,15 @@ export default function Home() {
     return true;
   });
 
-  const finalTableEvents = periodFilteredPenaltyEvents.filter((e) => {
+  const periodFineEvents = fineEvents.filter((e) => {
+    if (!e.start) return false;
+    const [y, m] = e.start.split("-");
+    if (statsYearFilter !== "all" && y !== statsYearFilter) return false;
+    if (statsMonthFilter !== "all" && m !== statsMonthFilter) return false;
+    return true;
+  });
+
+  const finalDemeritTable = periodDemeritEvents.filter((e) => {
     const q = statsSearchQuery.toLowerCase();
     const builderStr = JSON.stringify(e.extendedProps.builderDemerit?.items || []).toLowerCase();
     const supervisorStr = JSON.stringify(e.extendedProps.supervisorDemerit?.items || []).toLowerCase();
@@ -1382,20 +1388,51 @@ export default function Home() {
     return (
       e.extendedProps.projectName.toLowerCase().includes(q) ||
       e.extendedProps.builder.toLowerCase().includes(q) ||
-      e.extendedProps.penaltyReason.toLowerCase().includes(q) ||
+      e.extendedProps.supervisor.toLowerCase().includes(q) ||
       builderStr.includes(q) ||
       supervisorStr.includes(q) ||
       e.extendedProps.lawsuitCaseNumber.toLowerCase().includes(q)
     );
   });
 
-  const totalDemeritSitesCount = periodFilteredPenaltyEvents.filter(
-    (e) => e.extendedProps.hasDemerit
-  ).length;
+  const finalFineTable = periodFineEvents.filter((e) => {
+    const q = statsSearchQuery.toLowerCase();
+    return (
+      e.extendedProps.projectName.toLowerCase().includes(q) ||
+      e.extendedProps.builder.toLowerCase().includes(q) ||
+      e.extendedProps.penaltyReason.toLowerCase().includes(q)
+    );
+  });
 
-  const totalFineSitesCount = periodFilteredPenaltyEvents.filter(
-    (e) => e.extendedProps.hasFine
-  ).length;
+  // 엑셀 다운로드 함수
+  const exportToExcel = () => {
+    const dataToExport =
+      statsTab === "demerit"
+        ? finalDemeritTable.map((e) => ({
+            점검일자: e.start,
+            공사명: e.extendedProps.projectName,
+            처분대상: e.extendedProps.demeritTarget,
+            시공사: e.extendedProps.builder,
+            감리사: e.extendedProps.supervisor,
+            시공사_지적항목: (e.extendedProps.builderDemerit?.items || []).map((it) => `${it.content}(${it.score}점)`).join(" / "),
+            감리사_지적항목: (e.extendedProps.supervisorDemerit?.items || []).map((it) => `${it.content}(${it.score}점)`).join(" / "),
+            소송여부: e.extendedProps.hasLawsuit ? "소송중" : "미제기",
+            사건번호: e.extendedProps.lawsuitCaseNumber || "-",
+          }))
+        : finalFineTable.map((e) => ({
+            점검일자: e.start,
+            공사명: e.extendedProps.projectName,
+            시공사: e.extendedProps.builder,
+            감리사: e.extendedProps.supervisor,
+            과태료금액: `${e.extendedProps.fineAmount}만원`,
+            처분사유: e.extendedProps.penaltyReason,
+          }));
+
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, statsTab === "demerit" ? "벌점부과현황" : "과태료부과현황");
+    XLSX.writeFile(workbook, `건설안전과_${statsTab === "demerit" ? "벌점" : "과태료"}_통계자료.xlsx`);
+  };
 
   const filteredEvents =
     selectedTeam === "all"
@@ -1467,7 +1504,7 @@ export default function Home() {
               건설안전과 일정 캘린더
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              공동도급 분할벌점 및 시공사/감리사 세부 행정처분 통합 관리
+              시공사/감리사 분리 벌점 관리 및 과태료/소송 통합 대시보드
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -1607,14 +1644,14 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 통계 모달 */}
+      {/* 📊 상세 처분 현황 대시보드 모달 (벌점/과태료 탭 분리 및 상세항목 표출) */}
       {isStatsModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 space-y-5 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-slate-100 space-y-5 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b pb-3">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                 <BarChart3 className="text-rose-600" size={22} />
-                벌점 & 과태료 부과 현황 통계
+                행정처분 상세 현황 대시보드
               </h3>
               <button
                 onClick={() => setIsStatsModalOpen(false)}
@@ -1624,13 +1661,39 @@ export default function Home() {
               </button>
             </div>
 
+            {/* 🚨 벌점 / 💸 과태료 탭 분리 선택바 */}
+            <div className="flex border-b border-slate-200">
+              <button
+                onClick={() => setStatsTab("demerit")}
+                className={`flex-1 py-2.5 font-bold text-xs border-b-2 transition flex items-center justify-center gap-1.5 ${
+                  statsTab === "demerit"
+                    ? "border-rose-600 text-rose-600 bg-rose-50/50"
+                    : "border-transparent text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                <AlertTriangle size={15} />
+                벌점 부과 현황 ({demeritEvents.length}건)
+              </button>
+              <button
+                onClick={() => setStatsTab("fine")}
+                className={`flex-1 py-2.5 font-bold text-xs border-b-2 transition flex items-center justify-center gap-1.5 ${
+                  statsTab === "fine"
+                    ? "border-purple-600 text-purple-600 bg-purple-50/50"
+                    : "border-transparent text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                💸 과태료 부과 현황 ({fineEvents.length}건)
+              </button>
+            </div>
+
+            {/* 📅 기간별 필터 & 엑셀 다운로드 */}
             <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3">
-              <span className="text-xs font-bold text-slate-700">통계 기간 선택:</span>
               <div className="flex items-center gap-2 text-xs">
+                <span className="font-bold text-slate-700">조회 기간:</span>
                 <select
                   value={statsYearFilter}
                   onChange={(e) => setStatsYearFilter(e.target.value)}
-                  className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 font-semibold text-slate-800 outline-none focus:border-rose-500"
+                  className="bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 outline-none focus:border-rose-500"
                 >
                   <option value="all">전체 연도</option>
                   {YEARS_LIST.map((y) => (
@@ -1643,7 +1706,7 @@ export default function Home() {
                 <select
                   value={statsMonthFilter}
                   onChange={(e) => setStatsMonthFilter(e.target.value)}
-                  className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 font-semibold text-slate-800 outline-none focus:border-rose-500"
+                  className="bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 outline-none focus:border-rose-500"
                 >
                   <option value="all">전체 월</option>
                   <option value="01">1월</option>
@@ -1660,91 +1723,169 @@ export default function Home() {
                   <option value="12">12월</option>
                 </select>
               </div>
+
+              <button
+                onClick={exportToExcel}
+                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm"
+              >
+                <Download size={14} />
+                엑셀 다운로드
+              </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl text-center">
-                <span className="text-xs font-bold text-rose-700 block">총 벌점 부과 현장</span>
-                <span className="text-2xl font-black text-rose-800 mt-1 block">
-                  {totalDemeritSitesCount} <span className="text-xs font-medium">개소</span>
-                </span>
-              </div>
-              <div className="bg-purple-50 border border-purple-200 p-4 rounded-xl text-center">
-                <span className="text-xs font-bold text-purple-700 block">총 과태료 부과 현장</span>
-                <span className="text-2xl font-black text-purple-900 mt-1 block">
-                  {totalFineSitesCount} <span className="text-xs font-medium">개소</span>
-                </span>
-              </div>
-            </div>
-
+            {/* 검색바 */}
             <div className="relative">
               <Search size={16} className="absolute left-3 top-3 text-slate-400" />
               <input
                 type="text"
-                placeholder="공사명, 시공사, 처분사유, 사건번호 검색..."
+                placeholder="공사명, 시공사, 감리사, 지적항목, 사건번호 검색..."
                 value={statsSearchQuery}
                 onChange={(e) => setStatsSearchQuery(e.target.value)}
                 className="w-full border border-slate-300 rounded-xl pl-9 pr-3 py-2 text-xs outline-none focus:border-rose-500"
               />
             </div>
 
-            <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-semibold">
-                  <tr>
-                    <th className="p-2.5">점검일자</th>
-                    <th className="p-2.5">공사명 / 현장</th>
-                    <th className="p-2.5">대상 / 항목</th>
-                    <th className="p-2.5 text-center">처분구분</th>
-                    <th className="p-2.5 text-right">벌점/소송</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {finalTableEvents.length > 0 ? (
-                    finalTableEvents.map((e) => (
-                      <tr key={e.id} className="hover:bg-slate-50">
-                        <td className="p-2.5 text-slate-500 whitespace-nowrap">{e.start}</td>
-                        <td className="p-2.5 font-bold text-slate-800">{e.extendedProps.projectName}</td>
-                        <td className="p-2.5 text-slate-600">
-                          [{e.extendedProps.demeritTarget || "벌점"}]
-                        </td>
-                        <td className="p-2.5 text-center whitespace-nowrap">
-                          {e.extendedProps.hasDemerit && (
-                            <span className="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded font-bold mr-1">
-                              벌점
-                            </span>
-                          )}
-                          {e.extendedProps.hasFine && (
-                            <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold mr-1">
-                              과태료
-                            </span>
-                          )}
-                          {e.extendedProps.hasLawsuit && (
-                            <span className="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-bold">
-                              소송중
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-2.5 text-right font-semibold text-rose-600 whitespace-nowrap">
-                          {e.extendedProps.hasDemerit && "부과 "}
-                          {e.extendedProps.hasLawsuit && (
-                            <span className="text-indigo-600 font-bold block text-[11px]">
-                              ⚖️ {e.extendedProps.lawsuitStatus}
-                            </span>
-                          )}
+            {/* 📊 벌점 부과 현황 상세 종합 테이블 */}
+            {statsTab === "demerit" && (
+              <div className="border border-slate-200 rounded-xl overflow-x-auto text-xs">
+                <table className="w-full text-left border-collapse min-w-[700px]">
+                  <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
+                    <tr>
+                      <th className="p-2.5 whitespace-nowrap">점검일</th>
+                      <th className="p-2.5">공사명 / 현장</th>
+                      <th className="p-2.5">처분대상 & 수급형태</th>
+                      <th className="p-2.5">세부 지적항목 및 기준벌점</th>
+                      <th className="p-2.5 text-center whitespace-nowrap">행정절차 상태</th>
+                      <th className="p-2.5 text-center whitespace-nowrap">소송 상태</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {finalDemeritTable.length > 0 ? (
+                      finalDemeritTable.map((e) => {
+                        const bItems = e.extendedProps.builderDemerit?.items || [];
+                        const sItems = e.extendedProps.supervisorDemerit?.items || [];
+
+                        return (
+                          <tr key={e.id} className="hover:bg-slate-50">
+                            <td className="p-2.5 text-slate-500 whitespace-nowrap font-medium">{e.start}</td>
+                            <td className="p-2.5 font-bold text-slate-800">{e.extendedProps.projectName}</td>
+                            <td className="p-2.5 text-slate-700">
+                              <span className="font-bold block text-rose-800">
+                                [{e.extendedProps.demeritTarget || "전체"}]
+                              </span>
+                              <span className="text-[11px] text-slate-500 block">
+                                시공: {e.extendedProps.builder || "-"} ({e.extendedProps.builderDemerit?.contractType || "단독"})
+                              </span>
+                              <span className="text-[11px] text-slate-500 block">
+                                감리: {e.extendedProps.supervisor || "-"} ({e.extendedProps.supervisorDemerit?.contractType || "단독"})
+                              </span>
+                            </td>
+                            <td className="p-2.5 space-y-1">
+                              {bItems.length > 0 && bItems[0].content && (
+                                <div className="bg-amber-50/60 p-1.5 rounded border border-amber-100">
+                                  <span className="font-bold text-amber-900 block text-[10px]">👷 시공사 지적항목:</span>
+                                  {bItems.map((it, idx) => (
+                                    <div key={idx} className="text-[11px] text-slate-700 flex justify-between">
+                                      <span>• {it.content}</span>
+                                      <span className="font-bold text-rose-700 shrink-0 ml-1">{it.score}점</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {sItems.length > 0 && sItems[0].content && (
+                                <div className="bg-blue-50/60 p-1.5 rounded border border-blue-100">
+                                  <span className="font-bold text-blue-900 block text-[10px]">🔍 감리사 지적항목:</span>
+                                  {sItems.map((it, idx) => (
+                                    <div key={idx} className="text-[11px] text-slate-700 flex justify-between">
+                                      <span>• {it.content}</span>
+                                      <span className="font-bold text-rose-700 shrink-0 ml-1">{it.score}점</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                            <td className="p-2.5 text-center whitespace-nowrap">
+                              {e.extendedProps.builderDemerit?.opinionResult === "수용(종결)" ? (
+                                <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold text-[10px] block">
+                                  🟢 의견수용 (종결)
+                                </span>
+                              ) : !e.extendedProps.builderDemerit?.hasAppealSubmitted ? (
+                                <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-bold text-[10px] block">
+                                  🟠 이의제기 미제출 (확정)
+                                </span>
+                              ) : (
+                                <span className="bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-bold text-[10px] block">
+                                  🟣 외부심의 진행 중
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-2.5 text-center whitespace-nowrap">
+                              {e.extendedProps.hasLawsuit ? (
+                                <span className="bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded font-bold text-[10px] block">
+                                  ⚖️ {e.extendedProps.lawsuitStatus}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 text-[11px]">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="p-6 text-center text-slate-400">
+                          해당 기간에 등록된 벌점 부과 현장이 없습니다.
                         </td>
                       </tr>
-                    ))
-                  ) : (
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* 📊 과태료 부과 현황 상세 테이블 */}
+            {statsTab === "fine" && (
+              <div className="border border-slate-200 rounded-xl overflow-x-auto text-xs">
+                <table className="w-full text-left border-collapse min-w-[600px]">
+                  <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
                     <tr>
-                      <td colSpan={5} className="p-6 text-center text-slate-400">
-                        해당 기간에 등록된 벌점 및 과태료 부과 현장이 없습니다.
-                      </td>
+                      <th className="p-2.5 whitespace-nowrap">점검일</th>
+                      <th className="p-2.5">공사명 / 현장</th>
+                      <th className="p-2.5">시공사 / 감리사</th>
+                      <th className="p-2.5">과태료 부과 처분 사유</th>
+                      <th className="p-2.5 text-right whitespace-nowrap">과태료 금액</th>
                     </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {finalFineTable.length > 0 ? (
+                      finalFineTable.map((e) => (
+                        <tr key={e.id} className="hover:bg-slate-50">
+                          <td className="p-2.5 text-slate-500 whitespace-nowrap font-medium">{e.start}</td>
+                          <td className="p-2.5 font-bold text-slate-800">{e.extendedProps.projectName}</td>
+                          <td className="p-2.5 text-slate-600">
+                            <div>시공: {e.extendedProps.builder || "-"}</div>
+                            <div>감리: {e.extendedProps.supervisor || "-"}</div>
+                          </td>
+                          <td className="p-2.5 font-medium text-slate-800">
+                            {e.extendedProps.penaltyReason || "과태료 부과 대상"}
+                          </td>
+                          <td className="p-2.5 text-right font-black text-purple-700 whitespace-nowrap text-sm">
+                            {e.extendedProps.fineAmount} 만원
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="p-6 text-center text-slate-400">
+                          해당 기간에 등록된 과태료 부과 현장이 없습니다.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             <button
               onClick={() => setIsStatsModalOpen(false)}
@@ -1840,7 +1981,7 @@ export default function Home() {
                 />
               </div>
 
-              {/* 🚨 시공사 / 감리사 분리 벌점 설정 영역 */}
+              {/* 시공사 / 감리사 분리 벌점 설정 영역 */}
               <div className="bg-rose-50/80 border border-rose-200 p-3.5 rounded-xl space-y-3">
                 <div className="flex items-center justify-between border-b border-rose-200 pb-2">
                   <span className="font-bold text-rose-900 flex items-center gap-1">
