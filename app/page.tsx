@@ -462,7 +462,6 @@ export default function Home() {
             has_demerit: addForm.hasDemerit,
             demerit_target: addForm.demeritTarget,
 
-            // 시공사 분리 저장
             builder_demerit_item: addForm.builderDemerit.item,
             builder_demerit_score: addForm.builderDemerit.score,
             builder_demerit_notice_date: addForm.builderDemerit.noticeDate,
@@ -475,7 +474,6 @@ export default function Home() {
             builder_demerit_committee_date: addForm.builderDemerit.committeeDate,
             builder_demerit_final_result_date: addForm.builderDemerit.finalResultDate,
 
-            // 감리사 분리 저장
             supervisor_demerit_item: addForm.supervisorDemerit.item,
             supervisor_demerit_score: addForm.supervisorDemerit.score,
             supervisor_demerit_notice_date: addForm.supervisorDemerit.noticeDate,
@@ -589,6 +587,157 @@ export default function Home() {
     setEvents((prev) => prev.filter((e) => e.id !== selectedEvent.id));
     setSelectedEvent(null);
     alert("일정이 삭제되었습니다.");
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsLoading(true);
+    const reader = new FileReader();
+
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const workbook = XLSX.read(bstr, { type: "binary", cellDates: true });
+        const wsname = workbook.SheetNames[0];
+        const ws = workbook.Sheets[wsname];
+
+        const sheetData: any[][] = XLSX.utils.sheet_to_json(ws, {
+          header: 1,
+          defval: "",
+        });
+
+        if (sheetData.length < 4) {
+          alert("엑셀 파일에 데이터가 부족합니다.");
+          setIsLoading(false);
+          return;
+        }
+
+        const newCalendarEvents: CalendarEvent[] = [];
+        const dbRowsToInsert: any[] = [];
+
+        for (let r = 0; r < sheetData.length; r++) {
+          const row = sheetData[r];
+          if (!row || row.length === 0) continue;
+
+          const seq = String(row[1] || "").trim();
+          const orderType = String(row[2] || "").trim();
+          const category = String(row[3] || "").trim();
+          const client = String(row[4] || "").trim();
+          const projectName = String(row[5] || "").trim();
+          const address = String(row[6] || "").trim();
+          const startDate = formatDate(row[9]);
+          const endDate = formatDate(row[10]);
+          const builder = String(row[17] || "").trim();
+          const supervisor = String(row[18] || "").trim();
+          const agentName = String(row[19] || "").trim();
+          const agentPhone = String(row[20] || "").trim();
+          const agentEmail = String(row[21] || "").trim();
+          const progressStatus = String(row[22] || "").trim();
+          const teamRaw = String(row[23] || "").trim();
+          const rawCheckDate = row[24];
+
+          if (teamRaw === "담당조" || String(rawCheckDate).includes("점검예정일")) continue;
+
+          const checkDate = parseCheckDate(rawCheckDate);
+          if (!checkDate) continue;
+
+          const team = teamRaw || "1조";
+          const color = TEAM_COLORS[team] || "#60A5FA";
+          const title = `${team} - ${projectName.replace(/\n/g, " ") || "현장점검"}`;
+
+          const eventItem: CalendarEvent = {
+            id: String(Date.now() + Math.random() * 10000 + r),
+            title,
+            start: checkDate,
+            backgroundColor: color,
+            borderColor: color,
+            extendedProps: {
+              seq,
+              orderType,
+              category,
+              client,
+              projectName,
+              address,
+              startDate,
+              endDate,
+              builder,
+              supervisor,
+              agentName,
+              agentPhone,
+              agentEmail,
+              progressStatus,
+              team,
+              checkDate,
+              eventType: "inspection",
+              hasFine: false,
+              fineAmount: "",
+              penaltyReason: "",
+              hasDemerit: false,
+              demeritTarget: "시공사 및 감리사",
+              builderDemerit: defaultDemeritProc(),
+              supervisorDemerit: defaultDemeritProc(),
+              hasLawsuit: false,
+              lawsuitCourt: "",
+              lawsuitCaseNumber: "",
+              lawsuitStatus: "소 제기(접수)",
+              lawsuitLawyer: "",
+              lawsuitResult: "",
+              lawsuitNotes: "",
+            },
+          };
+
+          newCalendarEvents.push(eventItem);
+
+          dbRowsToInsert.push({
+            title,
+            start_date: checkDate,
+            end_date: null,
+            bg_color: color,
+            border_color: color,
+            team,
+            members: builder,
+            location: projectName,
+            notes: progressStatus,
+            seq,
+            order_type: orderType,
+            category,
+            client,
+            address,
+            start_date_work: startDate,
+            end_date_work: endDate,
+            supervisor,
+            agent_name: agentName,
+            agent_phone: agentPhone,
+            agent_email: agentEmail,
+            has_demerit: false,
+          });
+        }
+
+        setEvents((prev) => [...prev, ...newCalendarEvents]);
+
+        const supabase = getSupabaseClient();
+        if (supabase && dbRowsToInsert.length > 0) {
+          try {
+            await supabase.from("events").insert(dbRowsToInsert);
+            await fetchEvents();
+          } catch (e) {
+            console.error("DB 동기화 에러:", e);
+          }
+        }
+
+        alert(`총 ${newCalendarEvents.length}건의 일정이 추가되었습니다!`);
+      } catch (err: any) {
+        console.error("엑셀 파싱 오류:", err);
+        alert(`엑셀 처리 오류: ${err.message || err}`);
+      } finally {
+        setIsLoading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    };
+
+    reader.readAsBinaryString(file);
   };
 
   const handleEventClick = (info: any) => {
@@ -840,7 +989,6 @@ export default function Home() {
     );
   }
 
-  // 벌점 세부 입력 서브 컴포넌트
   const DemeritProcInputs = ({
     title,
     icon,
@@ -862,7 +1010,7 @@ export default function Home() {
         <label className="font-semibold text-slate-700 block mb-0.5">벌점 항목 (지적 분야 - 여러 항목 가능)</label>
         <textarea
           rows={2}
-          placeholder="예: 1. 품질시험계획 다르게 실시\n2. 안전관리비 정산 부적정"
+          placeholder="예: 1. 품질시험계획 다르게 실시&#10;2. 안전관리비 정산 부적정"
           value={proc.item}
           onChange={(e) => onChange({ ...proc, item: e.target.value })}
           className="w-full border p-2 rounded-lg bg-slate-50 text-xs"
@@ -923,7 +1071,7 @@ export default function Home() {
             의견이 수용되어 {title} 벌점 절차가 종결되었습니다.
           </div>
         ) : (
-          <>
+          <React.Fragment>
             <div className="grid grid-cols-2 gap-2 pt-1">
               <div>
                 <label className="text-[11px] text-slate-600 block">의견검토회의일</label>
@@ -964,6 +1112,7 @@ export default function Home() {
                   <label className="flex items-center gap-1 font-semibold text-slate-700">
                     <input
                       type="radio"
+                      name={`appeal-${title}`}
                       checked={!proc.hasAppealSubmitted}
                       onChange={() => onChange({ ...proc, hasAppealSubmitted: false })}
                     />
@@ -972,6 +1121,7 @@ export default function Home() {
                   <label className="flex items-center gap-1 font-semibold text-purple-800">
                     <input
                       type="radio"
+                      name={`appeal-${title}`}
                       checked={proc.hasAppealSubmitted}
                       onChange={() => onChange({ ...proc, hasAppealSubmitted: true })}
                     />
@@ -1002,14 +1152,13 @@ export default function Home() {
                   </div>
                 </div>
               )}
-            </>
-          )}
-        </div>
+            </div>
+          </React.Fragment>
+        )}
       </div>
     </div>
   );
 
-  // 벌점 세부 열람 카드 컴포넌트
   const DemeritDisplayCard = ({ title, icon, proc }: { title: string; icon: React.ReactNode; proc: DemeritProc }) => {
     if (!proc || (!proc.item && !proc.score)) return null;
 
@@ -1056,18 +1205,18 @@ export default function Home() {
             <div>• 의견검토결과: <span className="font-bold text-rose-800">{proc.opinionResult || "미제출"}</span></div>
             
             {proc.opinionResult !== "수용(종결)" && (
-              <>
+              <React.Fragment>
                 <div>• 검토회의일: <span className="font-semibold">{proc.reviewMeetingDate || "-"}</span></div>
                 <div>• 결과통보일: <span className="font-semibold">{proc.noticeResultDate || "-"}</span></div>
                 <div>• 이의마감일: <span className="font-semibold text-rose-700">{proc.appealDeadline || "-"}</span></div>
                 <div>• 이의제기여부: <span className="font-semibold">{proc.hasAppealSubmitted ? "제출됨" : "미제출"}</span></div>
                 {proc.hasAppealSubmitted && (
-                  <>
+                  <React.Fragment>
                     <div>• 외부심의일: <span className="font-semibold text-purple-700">{proc.committeeDate || "-"}</span></div>
                     <div>• 최종통보일: <span className="font-semibold">{proc.finalResultDate || "-"}</span></div>
-                  </>
+                  </React.Fragment>
                 )}
-              </>
+              </React.Fragment>
             )}
           </div>
         </div>
@@ -1457,7 +1606,7 @@ export default function Home() {
                 />
               </div>
 
-              {/* 🚨 시공사 / 감리사 분리 벌점 설정 영역 */}
+              {/* 시공사 / 감리사 분리 벌점 설정 영역 */}
               <div className="bg-rose-50/80 border border-rose-200 p-3.5 rounded-xl space-y-3">
                 <div className="flex items-center justify-between border-b border-rose-200 pb-2">
                   <span className="font-bold text-rose-900 flex items-center gap-1">
@@ -1492,7 +1641,6 @@ export default function Home() {
                       </select>
                     </div>
 
-                    {/* 시공사 벌점 설정 */}
                     {(addForm.demeritTarget === "시공사" || addForm.demeritTarget === "시공사 및 감리사") && (
                       <DemeritProcInputs
                         title="시공사"
@@ -1502,7 +1650,6 @@ export default function Home() {
                       />
                     )}
 
-                    {/* 감리사 벌점 설정 */}
                     {(addForm.demeritTarget === "감리사" || addForm.demeritTarget === "시공사 및 감리사") && (
                       <DemeritProcInputs
                         title="감리사"
@@ -1512,7 +1659,6 @@ export default function Home() {
                       />
                     )}
 
-                    {/* 행정 소송 설정 */}
                     <div className="bg-indigo-50/90 border border-indigo-200 p-3 rounded-xl space-y-2 mt-2">
                       <div className="flex items-center justify-between border-b border-indigo-200 pb-1.5">
                         <span className="font-bold text-indigo-950 flex items-center gap-1">
@@ -1773,7 +1919,6 @@ export default function Home() {
                   />
                 </div>
 
-                {/* 벌점 프로세스 수정 영역 */}
                 <div className="bg-rose-50/80 border border-rose-200 p-3.5 rounded-xl space-y-3">
                   <div className="flex items-center justify-between border-b border-rose-200 pb-2">
                     <span className="font-bold text-rose-900 flex items-center gap-1">
@@ -1964,7 +2109,6 @@ export default function Home() {
               </div>
             ) : (
               <div className="space-y-4 text-sm">
-                {/* 🚨 시공사 / 감리사 각각의 벌점 카드로 분리 표시 */}
                 {selectedEvent.extendedProps.hasDemerit && (
                   <div className="space-y-3">
                     <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl flex items-center justify-between">
@@ -1994,7 +2138,6 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* ⚖️ 행정 소송 진행 현황 카드 */}
                 {selectedEvent.extendedProps.hasLawsuit && (
                   <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl space-y-2.5">
                     <div className="flex items-center justify-between border-b border-indigo-200 pb-2">
@@ -2027,7 +2170,6 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* 과태료 부과 정보 카드 */}
                 {selectedEvent.extendedProps.hasFine && (
                   <div className="bg-purple-50 border border-purple-200 p-3.5 rounded-xl flex items-center justify-between text-xs">
                     <div>
