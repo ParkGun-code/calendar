@@ -111,15 +111,26 @@ const TEAM_COLORS: Record<string, string> = {
   "기타일정": "#64748B",          
 };
 
+// 2010년부터 과거/미래 연도 날짜를 명확히 파싱
 const parseCheckDate = (val: any): string => {
   if (!val) return "";
   const strVal = String(val).trim();
+
+  // YYYY-MM-DD / YYYY.MM.DD / YYYY/MM/DD 완벽 추출 (2010년 이상)
+  const ymdMatch = strVal.match(/^(\d{4})[\.\/-](\d{1,2})[\.\/-](\d{1,2})[\.]?$/);
+  if (ymdMatch) {
+    const y = ymdMatch[1];
+    const m = String(ymdMatch[2]).padStart(2, "0");
+    const d = String(ymdMatch[3]).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
 
   const mmddMatch = strVal.match(/^(\d{1,2})[\.\/-](\d{1,2})[\.]?$/);
   if (mmddMatch) {
     const m = String(mmddMatch[1]).padStart(2, "0");
     const d = String(mmddMatch[2]).padStart(2, "0");
-    return `2026-${m}-${d}`;
+    const currentYear = new Date().getFullYear();
+    return `${currentYear}-${m}-${d}`;
   }
 
   if (typeof val === "number") {
@@ -170,6 +181,9 @@ const formatDate = (val: any): string => {
   return str || "-";
 };
 
+// 2010년부터 2030년까지 선택 가능한 연도 목록 생성
+const YEARS_LIST = Array.from({ length: 21 }, (_, i) => String(2010 + i));
+
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState("");
@@ -178,13 +192,15 @@ export default function Home() {
 
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [selectedTeam, setSelectedTeam] = useState<string>("all");
-  const [deleteMonth, setDeleteMonth] = useState<string>("2026-05");
+  const [deleteMonth, setDeleteMonth] = useState<string>("2024-01");
   const [isLoading, setIsLoading] = useState(false);
 
+  // 모달 제어
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
 
+  // 새 일정 직접 추가 모달
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addForm, setAddForm] = useState({
     category: "기타일정",
@@ -220,6 +236,7 @@ export default function Home() {
     lawsuitNotes: "",
   });
 
+  // 벌점/과태료 통계 모달 & 기간별 필터
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
   const [statsYearFilter, setStatsYearFilter] = useState("all");
   const [statsMonthFilter, setStatsMonthFilter] = useState("all");
@@ -456,7 +473,7 @@ export default function Home() {
     }
 
     setIsAddModalOpen(false);
-    alert("새 일정이 추가되었습니다!");
+    alert("새 일정이 성공적으로 추가되었습니다!");
   };
 
   const handleClearDatabase = async () => {
@@ -950,7 +967,7 @@ export default function Home() {
               건설안전과 일정 캘린더
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              점검 및 회의 일정과 함께 벌점/과태료 부과 및 소송 진행 현황 통합 관리
+              2010년 이후 점검 및 회의 일정과 벌점/과태료 부과 및 소송 진행 현황 통합 관리
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -982,20 +999,20 @@ export default function Home() {
               />
             </button>
 
+            {/* 과거 2010년부터 연도 선택 삭제 지원 */}
             <div className="flex items-center border border-slate-300 rounded-xl overflow-hidden bg-slate-50">
               <select
                 value={deleteMonth}
                 onChange={(e) => setDeleteMonth(e.target.value)}
                 className="bg-transparent px-2.5 py-2 text-xs font-semibold text-slate-700 outline-none"
               >
-                <option value="2026-05">2026년 5월</option>
-                <option value="2026-06">2026년 6월</option>
-                <option value="2026-07">2026년 7월</option>
-                <option value="2026-08">2026년 8월</option>
-                <option value="2026-09">2026년 9월</option>
-                <option value="2026-10">2026년 10월</option>
-                <option value="2026-11">2026년 11월</option>
-                <option value="2026-12">2026년 12월</option>
+                {YEARS_LIST.flatMap((y) =>
+                  ["01", "03", "05", "06", "08", "09", "11", "12"].map((m) => (
+                    <option key={`${y}-${m}`} value={`${y}-${m}`}>
+                      {y}년 {parseInt(m)}월
+                    </option>
+                  ))
+                )}
               </select>
               <button
                 onClick={handleDeleteSpecificMonth}
@@ -1090,7 +1107,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 📊 벌점·과태료 부과 현황 통계 대시보드 모달 */}
+      {/* 📊 벌점·과태료 부과 현황 통계 대시보드 모달 (2010년~2030년 확장) */}
       {isStatsModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 space-y-5 max-h-[90vh] overflow-y-auto">
@@ -1110,15 +1127,18 @@ export default function Home() {
             <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3">
               <span className="text-xs font-bold text-slate-700">통계 기간 선택:</span>
               <div className="flex items-center gap-2 text-xs">
+                {/* 2010년부터 2030년까지 선택 가능 */}
                 <select
                   value={statsYearFilter}
                   onChange={(e) => setStatsYearFilter(e.target.value)}
-                  className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 font-semibold text-slate-800 outline-none focus:border-rose-500"
+                  className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 font-semibold text-slate-800 outline-none focus:border-rose-500 max-h-32 overflow-y-auto"
                 >
                   <option value="all">전체 연도</option>
-                  <option value="2025">2025년</option>
-                  <option value="2026">2026년</option>
-                  <option value="2027">2027년</option>
+                  {YEARS_LIST.map((y) => (
+                    <option key={y} value={y}>
+                      {y}년
+                    </option>
+                  ))}
                 </select>
 
                 <select
