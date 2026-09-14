@@ -32,7 +32,7 @@ export default function FieldInspectionCalendar() {
   const [mimeType, setMimeType] = useState("image/jpeg");
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [aiResult, setAiResult] = useState("");
-  // 결함 위치 바운딩 박스 목록: [{ box_2d: [ymin, xmin, ymax, xmax], label: "..." }]
+  // 결함 위치 바운딩 박스 목록
   const [detectedBoxes, setDetectedBoxes] = useState([]);
 
   const fetchEvents = async () => {
@@ -146,7 +146,7 @@ export default function FieldInspectionCalendar() {
 \`\`\`
 
 [2. 절대 준수 지침 - 원문 인용 및 환각 방지]
-1. 오직 대한민국 '국토교통부' 소관 법령 및 기준(KCS, KDS, 건설기술 진흥법)만 적용하십시오. (만약 검색이 안될경우 산업안전보건법 참조할 것)
+1. 오직 대한민국 '국토교통부' 소관 법령 및 기준(KCS, KDS, 건설기술 진흥법)만 적용하십시오. (타 부처 법령 일절 언급 금지)
 2. 관련 기준은 반드시 공식 코드 번호, 장·절 번호, 조항 번호를 명기하고, 공식 원문 문장을 인용구(>) 안에 있는 그대로 제시하십시오.
 3. 실제 존재하지 않는 규정 번호를 절대 지어내지 마십시오 (Zero Hallucination).
 
@@ -156,6 +156,7 @@ export default function FieldInspectionCalendar() {
    - **표준시방서(KCS)**: 코드 번호, 조항 명칭 및 공식 규정 원문 인용
    - **설계기준(KDS)**: 코드 번호, 조항 명칭 및 공식 규정 원문 인용
    - **건설기술 진흥법령**: 조항 번호 및 규정 원문 인용
+3. 현장 시정 조치 지시사항`;
 
     const payload = {
       contents: [{
@@ -171,48 +172,49 @@ export default function FieldInspectionCalendar() {
     };
 
     const candidateModels = [
+      "gemini-flash-latest",
       "gemini-2.5-flash",
       "gemini-2.5-flash-lite",
-      "gemini-flash-latest",
       "gemini-3.6-flash"
     ];
 
     try {
-      let lastError = "";
       let rawResponseText = "";
+      let lastErrMsg = "";
 
-      for (const model of candidateModels) {
-        try {
-          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
-          const response = await fetch(endpoint, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-          });
+      for (let i = 0; i < candidateModels.length; i++) {
+        const modelName = candidateModels[i];
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`;
 
-          if (response.ok) {
-            const result = await response.json();
-            rawResponseText = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
-            if (rawResponseText) break;
-          } else {
-            const errDetail = await response.text();
-            lastError = `[${model}] ${response.status}: ${errDetail}`;
-            if (response.status === 503 || response.status === 429 || response.status === 404) {
-              continue;
-            } else {
-              break;
-            }
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          rawResponseText = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
+          if (rawResponseText) {
+            break;
           }
-        } catch (e) {
-          lastError = e.message;
+        } else {
+          const errDetail = await response.text();
+          lastErrMsg = `[${modelName}] ${response.status}: ${errDetail}`;
+          // 503(과부하), 429(속도제한), 404인 경우 다음 모델 시도
+          if (response.status === 503 || response.status === 429 || response.status === 404) {
+            continue;
+          } else {
+            break;
+          }
         }
       }
 
       if (!rawResponseText) {
-        throw new Error(lastError || "모든 모델이 현재 응답할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+        throw new Error(lastErrMsg || "모든 모델이 현재 응답할 수 없습니다. 잠시 후 다시 시도해 주세요.");
       }
 
-      // 1. JSON 형태의 바운딩 박스 블록 파싱
+      // JSON 바운딩 박스 파싱
       const jsonMatch = rawResponseText.match(/```json\s*([\s\S]*?)\s*```/);
       let cleanMarkdown = rawResponseText;
 
@@ -222,10 +224,9 @@ export default function FieldInspectionCalendar() {
           if (parsed.defects && Array.isArray(parsed.defects)) {
             setDetectedBoxes(parsed.defects);
           }
-          // 본문 마크다운에서 JSON 블록 제거하여 깔끔하게 표시
           cleanMarkdown = rawResponseText.replace(/```json[\s\S]*?```/, "").trim();
-        } catch (err) {
-          console.warn("JSON 파싱 에러 (일반 텍스트로 처리):", err);
+        } catch (parseErr) {
+          console.warn("JSON 파싱 에러:", parseErr);
         }
       }
 
@@ -424,6 +425,7 @@ export default function FieldInspectionCalendar() {
                           />
                           {/* 붉은색 사각형 바운딩 박스 렌더링 */}
                           {detectedBoxes.map((defect, idx) => {
+                            if (!defect.box_2d || defect.box_2d.length !== 4) return null;
                             const [ymin, xmin, ymax, xmax] = defect.box_2d;
                             const top = `${ymin / 10}%`;
                             const left = `${xmin / 10}%`;
