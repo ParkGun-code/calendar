@@ -136,7 +136,7 @@ export default function Page() {
     };
 
     try {
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`;
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -238,7 +238,7 @@ export default function Page() {
             {/* Body */}
             <div className="p-5 flex-1">
               {activeTab === "detail" ? (
-                /* 기존 상세정보 레이아웃 100% 동일 재현 */
+                /* 기존 상세정보 레이아웃 100% 동일 */
                 <div className="space-y-4 text-xs text-slate-700">
                   <div>
                     <div className="text-slate-400 font-semibold mb-0.5 flex items-center gap-1">
