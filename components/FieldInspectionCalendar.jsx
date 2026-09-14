@@ -32,6 +32,8 @@ export default function FieldInspectionCalendar() {
   const [mimeType, setMimeType] = useState("image/jpeg");
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [aiResult, setAiResult] = useState("");
+  // 결함 위치 바운딩 박스 목록: [{ box_2d: [ymin, xmin, ymax, xmax], label: "..." }]
+  const [detectedBoxes, setDetectedBoxes] = useState([]);
 
   const fetchEvents = async () => {
     try {
@@ -63,10 +65,11 @@ export default function FieldInspectionCalendar() {
     setActiveTab("detail");
     setPreviewUrl(null);
     setBase64Data(null);
+    setDetectedBoxes([]);
     setAiResult("");
   };
 
-  // 모바일 대용량 사진 자동 리사이징 & 압축 (503 에러 원천 방지)
+  // 모바일 대용량 사진 자동 리사이징 & 압축 (가로/세로 최대 1280px)
   const handleImageChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -75,7 +78,6 @@ export default function FieldInspectionCalendar() {
     reader.onload = (evt) => {
       const img = new Image();
       img.onload = () => {
-        // AI 분석에 최적인 최대 1280px 해상도로 축소
         const MAX_SIZE = 1280;
         let width = img.width;
         let height = img.height;
@@ -98,11 +100,11 @@ export default function FieldInspectionCalendar() {
         const ctx = canvas.getContext("2d");
         ctx?.drawImage(img, 0, 0, width, height);
 
-        // 품질 0.85의 JPEG로 압축하여 수십 MB 사진을 300KB로 최적화
         const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.85);
         setPreviewUrl(compressedDataUrl);
         setBase64Data(compressedDataUrl.split(",")[1]);
         setMimeType("image/jpeg");
+        setDetectedBoxes([]);
         setAiResult("");
       };
       img.src = evt.target?.result;
@@ -123,32 +125,37 @@ export default function FieldInspectionCalendar() {
 
     setAiAnalyzing(true);
     setAiResult("");
+    setDetectedBoxes([]);
 
     const promptText = `당신은 대한민국 국토교통부 건설안전·품질 점검관입니다.
-첨부된 현장 점검 사진을 분석하여 발견되는 시공 불량, 안전 취약 부위를 지적하고 관련 공식 기준을 제시하십시오.
+첨부된 현장 점검 사진을 분석하여 결함 및 안전 취약 부위를 감지하고 관련 공식 기준을 제시하십시오.
 
-[절대 준수 지침 - 원문 인용 및 환각 방지]
-1. 적용 기준 엄격 제한:
-   - 오직 대한민국 '국토교통부' 소관 법령 및 기준만 적용하십시오.
-   - 대상: 표준시방서(KCS), 설계기준(KDS), 건설기술 진흥법(법률, 시행령, 시행규칙).
-   - 타 부처 소관 법령(고용노동부 '산업안전보건법', '산업안전보건기준에 관한 규칙' 등)은 일절 인용하거나 언급하지 마십시오.
-2. 조항 번호 및 원문 직인용 원칙:
-   - 관련 기준은 반드시 공식 코드 번호, 장·절 번호, 조항 번호(예: KCS 14 31 25 제3장 3.4.2 등)를 명기하십시오.
-   - 기준 내용은 요약하거나 추상화하지 말고, 고시된 공식 원문 문장 형태를 인용구(>) 안에 있는 그대로 제시하십시오.
-3. 허위/추측 작성 금지 (Zero Hallucination):
-   - 실제 존재하지 않는 코드 번호나 임의로 꾸며낸 규정 문장을 절대로 작성하지 마십시오.
-   - 코드 번호나 정확한 원문 문구가 완벽히 확실하지 않은 경우에는 "추가 확인 필요"라고 기재하고 억지로 조항 번호를 지어내지 마십시오.
+[1. 결함 위치 바운딩 박스(Bounding Box) 추출 - 절대 필수]
+- 사진에서 시공 불량, 균열, 볼트 누락/체결 불량, 안전난간/발판 결함, 배근 불량 등의 문제가 되는 정확한 부위를 찾아 2D Bounding Box 좌표를 추출하십시오.
+- 좌표 형식: [ymin, xmin, ymax, xmax] (0부터 1000 사이의 정수 정규화 값, [0, 0]은 좌상단, [1000, 1000]은 우하단)
+- 결과 맨 윗부분에 반드시 아래와 같은 JSON 블록 형식으로만 위치 정보를 출력하십시오:
+\`\`\`json
+{
+  "defects": [
+    {
+      "box_2d": [ymin, xmin, ymax, xmax],
+      "label": "결함 명칭(예: 볼트 체결 불량 부위)"
+    }
+  ]
+}
+\`\`\`
 
-[작성 양식]
-아래 순서와 형식에 맞추어 명확하게 작성하십시오:
+[2. 절대 준수 지침 - 원문 인용 및 환각 방지]
+1. 오직 대한민국 '국토교통부' 소관 법령 및 기준(KCS, KDS, 건설기술 진흥법)만 적용하십시오. (만약 검색이 안될경우 산업안전보건법 참조할 것)
+2. 관련 기준은 반드시 공식 코드 번호, 장·절 번호, 조항 번호를 명기하고, 공식 원문 문장을 인용구(>) 안에 있는 그대로 제시하십시오.
+3. 실제 존재하지 않는 규정 번호를 절대 지어내지 마십시오 (Zero Hallucination).
+
+[3. 작성 양식 (JSON 블록 하단에 이어서 작성)]
 1. 현장 사진 결함 및 문제점 분석
-   - 시공 불량 상태, 부재 접합 상태, 규격 미달 사항 등을 항목별로 구체적으로 기술
 2. 국토교통부 소관 관련 기준 및 법령 원문
    - **표준시방서(KCS)**: 코드 번호, 조항 명칭 및 공식 규정 원문 인용
    - **설계기준(KDS)**: 코드 번호, 조항 명칭 및 공식 규정 원문 인용
-   - **건설기술 진흥법령**: 조항 번호(법·영·규칙 구분) 및 규정 원문 인용
-3. 현장 시정 조치 지시사항
-   - 시공사(현장대리인) 및 감리원에게 요구할 보수·보강·재시공 등의 기술적 조치사항`;
+   - **건설기술 진흥법령**: 조항 번호 및 규정 원문 인용
 
     const payload = {
       contents: [{
@@ -163,7 +170,6 @@ export default function FieldInspectionCalendar() {
       }
     };
 
-    // 503(과부하) 방지를 위한 가용 모델 순차 호출 목록
     const candidateModels = [
       "gemini-2.5-flash",
       "gemini-2.5-flash-lite",
@@ -173,7 +179,7 @@ export default function FieldInspectionCalendar() {
 
     try {
       let lastError = "";
-      let successText = "";
+      let rawResponseText = "";
 
       for (const model of candidateModels) {
         try {
@@ -186,12 +192,11 @@ export default function FieldInspectionCalendar() {
 
           if (response.ok) {
             const result = await response.json();
-            successText = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
-            if (successText) break;
+            rawResponseText = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
+            if (rawResponseText) break;
           } else {
             const errDetail = await response.text();
             lastError = `[${model}] ${response.status}: ${errDetail}`;
-            // 503(과부하) 또는 429(속도제한)일 경우 다음 후보 모델로 즉시 전환
             if (response.status === 503 || response.status === 429 || response.status === 404) {
               continue;
             } else {
@@ -203,11 +208,28 @@ export default function FieldInspectionCalendar() {
         }
       }
 
-      if (successText) {
-        setAiResult(successText);
-      } else {
+      if (!rawResponseText) {
         throw new Error(lastError || "모든 모델이 현재 응답할 수 없습니다. 잠시 후 다시 시도해 주세요.");
       }
+
+      // 1. JSON 형태의 바운딩 박스 블록 파싱
+      const jsonMatch = rawResponseText.match(/```json\s*([\s\S]*?)\s*```/);
+      let cleanMarkdown = rawResponseText;
+
+      if (jsonMatch && jsonMatch[1]) {
+        try {
+          const parsed = JSON.parse(jsonMatch[1]);
+          if (parsed.defects && Array.isArray(parsed.defects)) {
+            setDetectedBoxes(parsed.defects);
+          }
+          // 본문 마크다운에서 JSON 블록 제거하여 깔끔하게 표시
+          cleanMarkdown = rawResponseText.replace(/```json[\s\S]*?```/, "").trim();
+        } catch (err) {
+          console.warn("JSON 파싱 에러 (일반 텍스트로 처리):", err);
+        }
+      }
+
+      setAiResult(cleanMarkdown);
     } catch (err) {
       console.error(err);
       alert(`분석 실패: ${err.message}`);
@@ -293,7 +315,7 @@ export default function FieldInspectionCalendar() {
             {/* Body */}
             <div className="p-5 flex-1">
               {activeTab === "detail" ? (
-                /* 기존 상세정보 레이아웃 */
+                /* 상세정보 레이아웃 */
                 <div className="space-y-4 text-xs text-slate-700">
                   <div>
                     <div className="text-slate-400 font-semibold mb-0.5 flex items-center gap-1">
@@ -376,7 +398,7 @@ export default function FieldInspectionCalendar() {
                   </div>
                 </div>
               ) : (
-                /* AI 사진 정밀 대조 뷰 */
+                /* AI 사진 정밀 대조 및 붉은색 사각형 시각화 뷰 */
                 <div className="space-y-4">
                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                     <div>
@@ -391,9 +413,38 @@ export default function FieldInspectionCalendar() {
                       />
                     </div>
 
-                    <div className="flex items-center justify-center border-2 border-dashed border-slate-300 rounded-lg p-2 bg-white min-h-[140px]">
+                    {/* 이미지 및 붉은색 사각형(바운딩 박스) 오버레이 영역 */}
+                    <div className="relative flex items-center justify-center border-2 border-dashed border-slate-300 rounded-lg p-2 bg-white min-h-[160px] overflow-hidden">
                       {previewUrl ? (
-                        <img src={previewUrl} alt="현장사진" className="max-h-44 object-contain rounded" />
+                        <div className="relative inline-block max-w-full">
+                          <img
+                            src={previewUrl}
+                            alt="현장사진"
+                            className="max-h-64 object-contain rounded block"
+                          />
+                          {/* 붉은색 사각형 바운딩 박스 렌더링 */}
+                          {detectedBoxes.map((defect, idx) => {
+                            const [ymin, xmin, ymax, xmax] = defect.box_2d;
+                            const top = `${ymin / 10}%`;
+                            const left = `${xmin / 10}%`;
+                            const width = `${(xmax - xmin) / 10}%`;
+                            const height = `${(ymax - ymin) / 10}%`;
+
+                            return (
+                              <div
+                                key={idx}
+                                style={{ top, left, width, height }}
+                                className="absolute border-2 border-red-500 bg-red-500/20 pointer-events-none rounded transition-all"
+                              >
+                                {defect.label && (
+                                  <span className="absolute -top-5 left-0 bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.2 rounded shadow whitespace-nowrap">
+                                    ⚠️ {defect.label}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       ) : (
                         <span className="text-xs text-slate-400">사진을 등록하면 미리보기가 표시됩니다.</span>
                       )}
@@ -409,7 +460,7 @@ export default function FieldInspectionCalendar() {
                           : "bg-blue-600 hover:bg-blue-700"
                       }`}
                     >
-                      {aiAnalyzing ? "국토교통부 기준 조항 대조 중..." : "국토교통부 기준 원문 대조 분석 실행"}
+                      {aiAnalyzing ? "결함 탐지 및 기준 조항 대조 중..." : "국토교통부 기준 원문 대조 분석 실행"}
                     </button>
                   </div>
 
@@ -418,7 +469,7 @@ export default function FieldInspectionCalendar() {
                       <span className="text-xs font-bold text-slate-800">📋 국토교통부 공식 기준 대조 결과</span>
                       {aiAnalyzing && (
                         <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded animate-pulse">
-                          KCS·KDS·건진법 검색 중...
+                          결함 부위 감지 및 기준 검색 중...
                         </span>
                       )}
                     </div>
@@ -430,6 +481,7 @@ export default function FieldInspectionCalendar() {
                     ) : (
                       <p className="text-xs text-slate-400 text-center py-8">
                         현장 사진을 올린 후 분석 실행 버튼을 누르면<br />
+                        사진 상의 <strong className="text-red-500">결함 부위에 붉은색 사각형이 표시</strong>되고,<br />
                         KCS, KDS, 건설기술 진흥법 조항 번호와 원문이 출력됩니다.
                       </p>
                     )}
