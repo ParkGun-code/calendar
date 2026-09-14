@@ -136,8 +136,8 @@ export default function FieldInspectionCalendar() {
     };
 
     try {
-      // 404를 방지하는 공식 Gemini 1.5 Flash 엔드포인트
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+      // 확인된 gemini-flash-latest 정식 모델 호출
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -193,7 +193,7 @@ export default function FieldInspectionCalendar() {
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-3">
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto border border-slate-200 flex flex-col">
             
-            {/* 상단 헤더 */}
+            {/* Header */}
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0 z-10">
               <div className="flex items-center gap-2">
                 <span className="bg-amber-400 text-slate-900 text-xs font-bold px-2.5 py-0.5 rounded-full">
@@ -209,7 +209,7 @@ export default function FieldInspectionCalendar() {
               </button>
             </div>
 
-            {/* 2단 탭 메뉴 버튼 */}
+            {/* 2단 탭 메뉴 */}
             <div className="flex border-b border-slate-200 bg-slate-50 text-xs font-bold px-4">
               <button
                 onClick={() => setActiveTab("detail")}
@@ -234,10 +234,10 @@ export default function FieldInspectionCalendar() {
               </button>
             </div>
 
-            {/* 본문 콘텐츠 영역 */}
+            {/* Body */}
             <div className="p-5 flex-1">
               {activeTab === "detail" ? (
-                /* 탭 1: 상세정보 레이아웃 */
+                /* 기존 상세정보 레이아웃 */
                 <div className="space-y-4 text-xs text-slate-700">
                   <div>
                     <div className="text-slate-400 font-semibold mb-0.5 flex items-center gap-1">
@@ -320,7 +320,7 @@ export default function FieldInspectionCalendar() {
                   </div>
                 </div>
               ) : (
-                /* 탭 2: AI 사진 정밀 대조 분석 뷰 */
+                /* AI 사진 정밀 대조 뷰 */
                 <div className="space-y-4">
                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                     <div>
@@ -382,7 +382,7 @@ export default function FieldInspectionCalendar() {
               )}
             </div>
 
-            {/* 하단 푸터 버튼 */}
+            {/* Footer */}
             <div className="p-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
               {activeTab === "detail" ? (
                 <>
