@@ -89,7 +89,7 @@ export default function FieldInspectionCalendar() {
     }
 
     if (!GEMINI_API_KEY) {
-      alert("NEXT_PUBLIC_GEMINI_API_KEY 환경변수가 확인되지 않습니다. Vercel 설정을 확인해 주세요.");
+      alert("NEXT_PUBLIC_GEMINI_API_KEY 환경변수가 확인되지 않습니다. Vercel 환경 변수를 확인해 주세요.");
       return;
     }
 
@@ -127,7 +127,7 @@ export default function FieldInspectionCalendar() {
         role: "user",
         parts: [
           { text: promptText },
-          { inlineData: { mimeType, data: base64Data } }
+          { inlineData: { mimeType: mimeType, data: base64Data } }
         ]
       }],
       generationConfig: {
@@ -136,23 +136,13 @@ export default function FieldInspectionCalendar() {
     };
 
     try {
-      // v1 엔드포인트 기본 호출
-      let endpoint = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-      let response = await fetch(endpoint, {
+      // 404를 방지하는 공식 Gemini 1.5 Flash 엔드포인트
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
-
-      // 404 발생 시 v1beta 폴백
-      if (!response.ok && response.status === 404) {
-        endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
-        response = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-      }
 
       if (!response.ok) {
         const errDetail = await response.text();
@@ -203,7 +193,7 @@ export default function FieldInspectionCalendar() {
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-3">
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto border border-slate-200 flex flex-col">
             
-            {/* Header */}
+            {/* 상단 헤더 */}
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0 z-10">
               <div className="flex items-center gap-2">
                 <span className="bg-amber-400 text-slate-900 text-xs font-bold px-2.5 py-0.5 rounded-full">
@@ -219,7 +209,7 @@ export default function FieldInspectionCalendar() {
               </button>
             </div>
 
-            {/* 2단 탭 메뉴 */}
+            {/* 2단 탭 메뉴 버튼 */}
             <div className="flex border-b border-slate-200 bg-slate-50 text-xs font-bold px-4">
               <button
                 onClick={() => setActiveTab("detail")}
@@ -244,10 +234,10 @@ export default function FieldInspectionCalendar() {
               </button>
             </div>
 
-            {/* Body */}
+            {/* 본문 콘텐츠 영역 */}
             <div className="p-5 flex-1">
               {activeTab === "detail" ? (
-                /* 기존 상세정보 레이아웃 100% 동일 유지 */
+                /* 탭 1: 상세정보 레이아웃 */
                 <div className="space-y-4 text-xs text-slate-700">
                   <div>
                     <div className="text-slate-400 font-semibold mb-0.5 flex items-center gap-1">
@@ -330,7 +320,7 @@ export default function FieldInspectionCalendar() {
                   </div>
                 </div>
               ) : (
-                /* AI 사진 정밀 대조 뷰 */
+                /* 탭 2: AI 사진 정밀 대조 분석 뷰 */
                 <div className="space-y-4">
                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                     <div>
@@ -363,13 +353,13 @@ export default function FieldInspectionCalendar() {
                           : "bg-blue-600 hover:bg-blue-700"
                       }`}
                     >
-                      {aiAnalyzing ? "설계기준 조항 대조 중..." : "설계기준 원문 대조 분석 실행"}
+                      {aiAnalyzing ? "국토교통부 기준 조항 대조 중..." : "국토교통부 기준 원문 대조 분석 실행"}
                     </button>
                   </div>
 
                   <div className="border border-slate-200 rounded-xl p-4 bg-white shadow-sm min-h-[200px]">
                     <div className="border-b border-slate-100 pb-2 mb-2.5 flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-800">📋 설계기준 대조 결과</span>
+                      <span className="text-xs font-bold text-slate-800">📋 국토교통부 공식 기준 대조 결과</span>
                       {aiAnalyzing && (
                         <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded animate-pulse">
                           KCS·KDS·건진법 검색 중...
@@ -392,7 +382,7 @@ export default function FieldInspectionCalendar() {
               )}
             </div>
 
-            {/* Footer */}
+            {/* 하단 푸터 버튼 */}
             <div className="p-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
               {activeTab === "detail" ? (
                 <>
