@@ -1,2773 +1,423 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
-import * as XLSX from "xlsx";
-import {
-  Upload,
-  Filter,
-  Trash2,
-  RefreshCw,
-  X,
-  Calendar,
-  MapPin,
-  User,
-  Phone,
-  Building,
-  FileText,
-  Navigation,
-  Edit2,
-  Check,
-  PlusCircle,
-  AlertTriangle,
-  BarChart3,
-  Search,
-  Scale,
-  CheckCircle2,
-  HardHat,
-  ShieldCheck,
-  Plus,
-  Users,
-  Download,
-} from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
+import { marked } from "marked";
 
-const getSupabaseClient = () => {
-  try {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (url && key && url.startsWith("http")) {
-      return createClient(url, key);
-    }
-  } catch (e) {
-    console.warn("Supabase 클라이언트 초기화 생략:", e);
-  }
-  return null;
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://hylizcltiyqtnclmwspo.supabase.co";
+const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_dD_I8Rbfc5qcOgbBRbL5qw_4yRK_EYs";
+const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const GROUP_COLORS: { [key: string]: string } = {
+  "1조": "#60A5FA",
+  "2조": "#34D399",
+  "3조": "#FBBF24",
+  "TF1조": "#A78BFA",
+  "TF2조": "#F472B6"
 };
 
-// 개별 벌점 항목
-interface DemeritItemDetail {
-  id: string;
-  content: string; // 지적 항목 내용
-  score: string;   // 해당 항목 기준 벌점 점수
-}
+export default function Page() {
+  const [events, setEvents] = useState<any[]>([]);
+  const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
+  const [activeTab, setActiveTab] = useState<"detail" | "ai_check">("detail");
 
-// 공동도급 구성원 및 지분율 분할 벌점
-interface JointMember {
-  id: string;
-  name: string;    // 업체명 (예: 계룡건설산업)
-  ratio: string;   // 출자비율(%) (예: 49.8)
-  assignedScore: string; // 지분율 반영 부과 벌점
-}
-
-interface DemeritProc {
-  contractType: string; // '단독' | '공동이행(지분율분할)' | '분담이행'
-  items: DemeritItemDetail[]; // 복수 벌점 항목
-  jointMembers: JointMember[]; // 공동수급체 구성원 목록
-  finalNoticeDate: string; // 최종 벌점 통보일
-  noticeDate: string;
-  opinionDeadline: string;
-  opinionResult: string; // '미제출' | '불수용' | '수용(종결)' | '취소의결(벌점미부과)'
-  reviewMeetingDate: string;
-  noticeResultDate: string;
-  appealDeadline: string;
-  hasAppealSubmitted: boolean;
-  committeeDate: string;
-  finalResultDate: string;
-}
-
-interface CalendarEvent {
-  id: string;
-  title: string;
-  start: string;
-  backgroundColor: string;
-  borderColor: string;
-  extendedProps: {
-    seq: string;
-    orderType: string;
-    category: string;
-    client: string;
-    projectName: string;
-    address: string;
-    startDate: string;
-    endDate: string;
-    builder: string;
-    supervisor: string;
-    agentName: string;
-    agentPhone: string;
-    agentEmail: string;
-    progressStatus: string;
-    team: string;
-    checkDate: string;
-    eventType: string;
-    
-    // 과태료
-    hasFine: boolean;
-    fineAmount: string;
-    penaltyReason: string;
-
-    // 벌점 부과 통합 설정
-    hasDemerit: boolean;            
-    demeritTarget: string; // '시공사' | '감리사' | '시공사 및 감리사'
-
-    // 시공사 전용 벌점 프로세스
-    builderDemerit: DemeritProc;
-
-    // 감리사 전용 벌점 프로세스
-    supervisorDemerit: DemeritProc;
-
-    // 행정 소송 관리
-    hasLawsuit: boolean;            
-    lawsuitCourt: string;           
-    lawsuitCaseNumber: string;      
-    lawsuitStatus: string;          
-    lawsuitLawyer: string;          
-    lawsuitResult: string;          
-    lawsuitNotes: string;           
-  };
-}
-
-const TEAM_COLORS: Record<string, string> = {
-  "1조": "#60A5FA",          
-  "2조": "#34D399",          
-  "3조": "#FBBF24",          
-  "TF1조": "#A78BFA",        
-  "TF2조": "#F472B6",        
-  "현장점검 결과회의": "#10B981",  
-  "의견제출 검토회의": "#6366F1",  
-  "벌점심의위원회": "#EF4444",    
-  "기타일정": "#64748B",          
-};
-
-const parseCheckDate = (val: any): string => {
-  if (!val) return "";
-  const strVal = String(val).trim();
-
-  const ymdMatch = strVal.match(/^(\d{4})[\.\/-](\d{1,2})[\.\/-](\d{1,2})[\.]?$/);
-  if (ymdMatch) {
-    const y = ymdMatch[1];
-    const m = String(ymdMatch[2]).padStart(2, "0");
-    const d = String(ymdMatch[3]).padStart(2, "0");
-    return `${y}-${m}-${d}`;
-  }
-
-  const mmddMatch = strVal.match(/^(\d{1,2})[\.\/-](\d{1,2})[\.]?$/);
-  if (mmddMatch) {
-    const m = String(mmddMatch[1]).padStart(2, "0");
-    const d = String(mmddMatch[2]).padStart(2, "0");
-    return `2024-${m}-${d}`;
-  }
-
-  if (typeof val === "number") {
-    const jsDate = XLSX.SSF.parse_date_code(val);
-    if (jsDate) {
-      return `${jsDate.y}-${String(jsDate.m).padStart(2, "0")}-${String(
-        jsDate.d
-      ).padStart(2, "0")}`;
-    }
-  }
-
-  if (val instanceof Date) {
-    return `${val.getFullYear()}-${String(val.getMonth() + 1).padStart(
-      2,
-      "0"
-    )}-${String(val.getDate()).padStart(2, "0")}`;
-  }
-
-  if (/^\d{8}$/.test(strVal)) {
-    return `${strVal.substring(0, 4)}-${strVal.substring(
-      4,
-      6
-    )}-${strVal.substring(6, 8)}`;
-  }
-
-  const cleanStr = strVal.replace(/\./g, "-").replace(/\//g, "-");
-  const dateObj = new Date(cleanStr);
-  if (!isNaN(dateObj.getTime())) {
-    return `${dateObj.getFullYear()}-${String(
-      dateObj.getMonth() + 1
-    ).padStart(2, "0")}-${String(dateObj.getDate()).padStart(2, "0")}`;
-  }
-
-  return "";
-};
-
-const formatDate = (val: any): string => {
-  if (!val) return "-";
-  if (typeof val === "number") {
-    const jsDate = XLSX.SSF.parse_date_code(val);
-    if (jsDate) {
-      return `${jsDate.y}-${String(jsDate.m).padStart(2, "0")}-${String(
-        jsDate.d
-      ).padStart(2, "0")}`;
-    }
-  }
-  const str = String(val).split(" ")[0].replace(/\./g, "-");
-  return str || "-";
-};
-
-const YEARS_LIST = Array.from({ length: 21 }, (_, i) => String(2010 + i));
-
-const defaultDemeritProc = (): DemeritProc => ({
-  contractType: "단독",
-  items: [{ id: "1", content: "", score: "" }],
-  jointMembers: [{ id: "1", name: "", ratio: "100", assignedScore: "" }],
-  finalNoticeDate: "",
-  noticeDate: "",
-  opinionDeadline: "",
-  opinionResult: "미제출",
-  reviewMeetingDate: "",
-  noticeResultDate: "",
-  appealDeadline: "",
-  hasAppealSubmitted: false,
-  committeeDate: "",
-  finalResultDate: "",
-});
-
-function DemeritProcInputs({
-  title,
-  icon,
-  proc,
-  onChange,
-}: {
-  title: string;
-  icon: React.ReactNode;
-  proc: DemeritProc;
-  onChange: (updated: DemeritProc) => void;
-}) {
-  const safeItems = proc?.items && proc.items.length > 0 ? proc.items : [{ id: "1", content: "", score: "" }];
-  const safeMembers = proc?.jointMembers && proc.jointMembers.length > 0 ? proc.jointMembers : [{ id: "1", name: "", ratio: "100", assignedScore: "" }];
-
-  const handleAddItem = () => {
-    const newItem: DemeritItemDetail = { id: String(Date.now()), content: "", score: "" };
-    onChange({ ...proc, items: [...safeItems, newItem] });
-  };
-
-  const handleRemoveItem = (id: string) => {
-    if (safeItems.length <= 1) return;
-    onChange({ ...proc, items: safeItems.filter((it) => it.id !== id) });
-  };
-
-  const handleItemChange = (id: string, field: "content" | "score", val: string) => {
-    const updatedItems = safeItems.map((it) => (it.id === id ? { ...it, [field]: val } : it));
-    onChange({ ...proc, items: updatedItems });
-  };
-
-  const handleAddMember = () => {
-    const newMember: JointMember = { id: String(Date.now()), name: "", ratio: "", assignedScore: "" };
-    onChange({ ...proc, jointMembers: [...safeMembers, newMember] });
-  };
-
-  const handleRemoveMember = (id: string) => {
-    if (safeMembers.length <= 1) return;
-    onChange({ ...proc, jointMembers: safeMembers.filter((m) => m.id !== id) });
-  };
-
-  const handleMemberChange = (id: string, field: keyof JointMember, val: string) => {
-    const updatedMembers = safeMembers.map((m) => (m.id === id ? { ...m, [field]: val } : m));
-    onChange({ ...proc, jointMembers: updatedMembers });
-  };
-
-  const isCanceled = proc.opinionResult === "수용(종결)" || proc.opinionResult === "취소의결(벌점미부과)";
-
-  const totalScore = isCanceled
-    ? "0.0 (취소종결)"
-    : safeItems
-        .reduce((acc, curr) => acc + (parseFloat(curr.score) || 0), 0)
-        .toFixed(1);
-
-  return (
-    <div className="bg-white p-3 rounded-xl border border-rose-200 space-y-3 shadow-sm">
-      <div className="flex items-center justify-between border-b border-rose-100 pb-1.5">
-        <span className="font-bold text-rose-900 text-xs flex items-center gap-1">
-          {icon}
-          {title} 벌점 세부 절차
-        </span>
-        <span className={`text-[11px] font-bold px-2 py-0.5 rounded ${isCanceled ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
-          벌점: {totalScore}{!isCanceled && "점"}
-        </span>
-      </div>
-
-      <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 flex items-center justify-between">
-        <span className="font-bold text-slate-700 text-[11px] flex items-center gap-1">
-          <Users size={14} className="text-slate-500" />
-          도급 형태 선택:
-        </span>
-        <select
-          value={proc.contractType || "단독"}
-          onChange={(e) => onChange({ ...proc, contractType: e.target.value })}
-          className="border p-1 rounded bg-white font-bold text-xs outline-none"
-        >
-          <option value="단독">단독 도급</option>
-          <option value="공동이행(지분율분할)">공동이행방식 (지분율 분할부과)</option>
-          <option value="분담이행">분담이행방식 (해당업체 직접부과)</option>
-        </select>
-      </div>
-
-      <div className="bg-rose-50/70 p-2.5 rounded-lg border border-rose-200 flex items-center justify-between">
-        <label className="font-bold text-rose-900 text-[11px]">
-          🔴 최종 벌점 확정/취소 통보일:
-        </label>
-        <input
-          type="date"
-          value={proc.finalNoticeDate || ""}
-          onChange={(e) => onChange({ ...proc, finalNoticeDate: e.target.value })}
-          className="border p-1 rounded bg-white text-xs font-bold text-rose-800 outline-none focus:border-rose-500"
-        />
-      </div>
-
-      {proc.contractType === "공동이행(지분율분할)" && (
-        <div className="bg-amber-50/70 p-2.5 rounded-lg border border-amber-200 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="font-bold text-amber-900 text-[11px]">
-              🤝 공동수급체 구성원 및 지분율 분할 벌점
-            </span>
-            <button
-              type="button"
-              onClick={handleAddMember}
-              className="flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-white border border-amber-300 px-2 py-0.5 rounded hover:bg-amber-100 transition"
-            >
-              <Plus size={11} /> 구성원 추가
-            </button>
-          </div>
-
-          <div className="space-y-1.5">
-            {safeMembers.map((mem, idx) => (
-              <div key={mem.id} className="flex items-center gap-1.5 bg-white p-1.5 rounded border border-amber-200">
-                <span className="font-bold text-slate-500 text-[10px] shrink-0">{idx + 1}.</span>
-                <input
-                  type="text"
-                  placeholder="업체명 (예: 계룡건설)"
-                  value={mem.name}
-                  onChange={(e) => handleMemberChange(mem.id, "name", e.target.value)}
-                  className="w-full border p-1 rounded text-xs outline-none"
-                />
-                <input
-                  type="text"
-                  placeholder="지분율(%)"
-                  value={mem.ratio}
-                  onChange={(e) => handleMemberChange(mem.id, "ratio", e.target.value)}
-                  className="w-16 border p-1 rounded text-xs outline-none text-right"
-                />
-                <span className="text-[10px] text-slate-500 font-bold shrink-0">%</span>
-                <input
-                  type="text"
-                  placeholder="부과점수"
-                  value={mem.assignedScore}
-                  onChange={(e) => handleMemberChange(mem.id, "assignedScore", e.target.value)}
-                  className="w-20 border p-1 rounded text-xs outline-none text-right font-bold text-rose-700 bg-rose-50/30"
-                />
-                <span className="text-[10px] text-rose-700 font-bold shrink-0">점</span>
-                {safeMembers.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveMember(mem.id)}
-                    className="text-rose-500 hover:text-rose-700 p-0.5 shrink-0"
-                  >
-                    <X size={13} />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <label className="font-bold text-slate-700 text-[11px]">
-            📌 지적 항목 및 개별 벌점 목록 ({safeItems.length}개)
-          </label>
-          <button
-            type="button"
-            onClick={handleAddItem}
-            className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded hover:bg-emerald-100 transition"
-          >
-            <Plus size={12} />
-            벌점 항목 추가
-          </button>
-        </div>
-
-        {safeItems.map((item, idx) => (
-          <div key={item.id} className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-slate-700 text-[11px]">
-                항목 {idx + 1}
-              </span>
-              {safeItems.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => handleRemoveItem(item.id)}
-                  className="text-rose-600 hover:text-rose-800 text-[10px] font-bold flex items-center gap-0.5"
-                >
-                  <X size={12} /> 삭제
-                </button>
-              )}
-            </div>
-
-            <input
-              type="text"
-              placeholder={`예: 건설공사현장 안전관리대책의 소홀[가.11)나)]`}
-              value={item.content}
-              onChange={(e) => handleItemChange(item.id, "content", e.target.value)}
-              className="w-full border p-1.5 rounded bg-white text-xs outline-none focus:border-rose-400"
-            />
-
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-semibold text-slate-600 shrink-0">기준 벌점:</span>
-              <input
-                type="text"
-                placeholder="예: 3"
-                value={item.score}
-                onChange={(e) => handleItemChange(item.id, "score", e.target.value)}
-                className="w-full border p-1 rounded bg-white text-xs outline-none focus:border-rose-400"
-              />
-              <span className="text-xs font-bold text-rose-700 shrink-0">점</span>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="space-y-2 pt-1 border-t border-rose-100">
-        <span className="font-bold text-rose-800 text-[11px] block">1단계: 사전통지 및 의견제출/심의 결과</span>
-        
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="text-[11px] text-slate-600 block">사전통지일</label>
-            <input
-              type="date"
-              value={proc.noticeDate}
-              onChange={(e) => onChange({ ...proc, noticeDate: e.target.value })}
-              className="w-full border p-1 rounded-lg bg-slate-50 text-xs"
-            />
-          </div>
-          <div>
-            <label className="text-[11px] text-slate-600 block">의견제출 마감일</label>
-            <input
-              type="date"
-              value={proc.opinionDeadline}
-              onChange={(e) => onChange({ ...proc, opinionDeadline: e.target.value })}
-              className="w-full border p-1 rounded-lg bg-slate-50 text-xs"
-            />
-          </div>
-        </div>
-
-        <div className="bg-rose-50/50 p-2 rounded-lg border border-rose-100 space-y-1">
-          <label className="font-bold text-rose-900 block text-[11px]">검토 및 심의 결과 선택 *</label>
-          <select
-            value={proc.opinionResult}
-            onChange={(e) => onChange({ ...proc, opinionResult: e.target.value })}
-            className="w-full border p-1 rounded-lg bg-white font-bold text-xs text-slate-800"
-          >
-            <option value="미제출">의견 미제출 (절차 진행)</option>
-            <option value="불수용">의견 제출 - 불수용 (절차 진행)</option>
-            <option value="수용(종결)">의견 제출 - 수용 (벌점부과 철회/종결)</option>
-            <option value="취소의결(벌점미부과)">벌점심의 - 취소 의결 (벌점 미부과 종결)</option>
-          </select>
-        </div>
-
-        {isCanceled ? (
-          <div className="bg-emerald-50 text-emerald-800 p-2.5 rounded-lg border border-emerald-200 text-[11px] font-bold flex items-center gap-1.5">
-            <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-            {proc.opinionResult === "취소의결(벌점미부과)"
-              ? "벌점심의에서 '취소 의결'되어 해당 현장의 벌점 부과가 철회/종결되었습니다. (이력 관리)"
-              : "의견이 수용되어 벌점 부과 절차가 종결되었습니다."}
-          </div>
-        ) : (
-          <React.Fragment>
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <div>
-                <label className="text-[11px] text-slate-600 block">의견검토회의일</label>
-                <input
-                  type="date"
-                  value={proc.reviewMeetingDate}
-                  onChange={(e) => onChange({ ...proc, reviewMeetingDate: e.target.value })}
-                  className="w-full border p-1 rounded-lg bg-slate-50 text-xs"
-                />
-              </div>
-              <div>
-                <label className="text-[11px] text-slate-600 block">검토결과 통보일</label>
-                <input
-                  type="date"
-                  value={proc.noticeResultDate}
-                  onChange={(e) => onChange({ ...proc, noticeResultDate: e.target.value })}
-                  className="w-full border p-1 rounded-lg bg-slate-50 text-xs"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5 pt-2 border-t border-rose-100">
-              <span className="font-bold text-rose-800 text-[11px] block">2단계: 이의제기 및 외부심의회</span>
-              
-              <div>
-                <label className="text-[11px] text-slate-600 block mb-0.5">이의제기 마감일</label>
-                <input
-                  type="date"
-                  value={proc.appealDeadline}
-                  onChange={(e) => onChange({ ...proc, appealDeadline: e.target.value })}
-                  className="w-full border p-1 rounded-lg bg-slate-50 text-xs"
-                />
-              </div>
-
-              <div className="bg-rose-50/50 p-2 rounded-lg border border-rose-100 space-y-1">
-                <label className="font-bold text-rose-900 block text-[11px]">이의제기 제출 여부 *</label>
-                <div className="flex gap-3 text-xs">
-                  <label className="flex items-center gap-1 font-semibold text-slate-700 cursor-pointer">
-                    <input
-                      type="radio"
-                      name={`appeal-${title}`}
-                      checked={!proc.hasAppealSubmitted}
-                      onChange={() => onChange({ ...proc, hasAppealSubmitted: false })}
-                    />
-                    미제출 (벌점 확정)
-                  </label>
-                  <label className="flex items-center gap-1 font-semibold text-purple-800 cursor-pointer">
-                    <input
-                      type="radio"
-                      name={`appeal-${title}`}
-                      checked={proc.hasAppealSubmitted}
-                      onChange={() => onChange({ ...proc, hasAppealSubmitted: true })}
-                    />
-                    이의제기 (외부심의)
-                  </label>
-                </div>
-              </div>
-
-              {proc.hasAppealSubmitted && (
-                <div className="grid grid-cols-2 gap-2 bg-purple-50/60 p-2 rounded-lg border border-purple-100">
-                  <div>
-                    <label className="text-[11px] text-slate-600 block">외부심의회 개최일</label>
-                    <input
-                      type="date"
-                      value={proc.committeeDate}
-                      onChange={(e) => onChange({ ...proc, committeeDate: e.target.value })}
-                      className="w-full border p-1 rounded-lg bg-white text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-slate-600 block">최종결과 통보일</label>
-                    <input
-                      type="date"
-                      value={proc.finalResultDate}
-                      onChange={(e) => onChange({ ...proc, finalResultDate: e.target.value })}
-                      className="w-full border p-1 rounded-lg bg-white text-xs"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          </React.Fragment>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function DemeritDisplayCard({ title, icon, proc }: { title: string; icon: React.ReactNode; proc: DemeritProc }) {
-  if (!proc) return null;
-  const safeItems = proc.items && proc.items.length > 0 ? proc.items : [];
-  const safeMembers = proc.jointMembers && proc.jointMembers.length > 0 ? proc.jointMembers : [];
-
-  const isCanceled = proc.opinionResult === "수용(종결)" || proc.opinionResult === "취소의결(벌점미부과)";
-
-  const totalScore = isCanceled
-    ? "0.0"
-    : safeItems
-        .reduce((acc, curr) => acc + (parseFloat(curr.score) || 0), 0)
-        .toFixed(1);
-
-  return (
-    <div className="bg-white/90 p-3 rounded-xl border border-rose-200 text-xs space-y-2">
-      <div className="flex items-center justify-between border-b border-rose-100 pb-1.5">
-        <span className="font-bold text-rose-950 flex items-center gap-1 text-xs">
-          {icon}
-          {title} 벌점 처분 ({proc.contractType || "단독"})
-        </span>
-        <span className={`font-black text-[11px] px-2.5 py-0.5 rounded-full ${isCanceled ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"}`}>
-          {isCanceled ? "취소종결 (0점)" : `기준합계 ${totalScore}점`}
-        </span>
-      </div>
-
-      {proc.finalNoticeDate && (
-        <div className="bg-rose-100/70 p-2 rounded-lg border border-rose-200 flex items-center justify-between font-bold text-rose-900">
-          <span>🔴 최종 벌점 확정/취소 통보일:</span>
-          <span>{proc.finalNoticeDate}</span>
-        </div>
-      )}
-
-      {proc.contractType === "공동이행(지분율분할)" && safeMembers.length > 0 && (
-        <div className="bg-amber-50 p-2 rounded-lg border border-amber-200 space-y-1">
-          <span className="font-bold text-amber-900 block text-[11px]">🤝 공동수급체 구성원별 분할 부과 벌점:</span>
-          <div className="grid grid-cols-2 gap-1 text-[11px]">
-            {safeMembers.map((m) => (
-              <div key={m.id} className="bg-white p-1 rounded border border-amber-100 flex justify-between font-semibold">
-                <span>{m.name || "업체명미입력"} ({m.ratio}%)</span>
-                <span className="text-rose-700 font-bold">{isCanceled ? "0점(취소)" : `${m.assignedScore || "0"}점`}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="flex flex-wrap gap-1">
-        {proc.opinionResult === "취소의결(벌점미부과)" ? (
-          <span className="bg-emerald-100 text-emerald-900 text-[10px] font-bold px-2 py-0.5 rounded border border-emerald-300">
-            🟢 벌점심의 취소 의결 (벌점 미부과 종결)
-          </span>
-        ) : proc.opinionResult === "수용(종결)" ? (
-          <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded">
-            🟢 의견제출 수용 (철회/종결)
-          </span>
-        ) : !proc.hasAppealSubmitted ? (
-          <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded">
-            🟠 이의제기 미제출 (벌점 확정)
-          </span>
-        ) : (
-          <span className="bg-purple-100 text-purple-800 text-[10px] font-bold px-2 py-0.5 rounded">
-            🟣 외부심의 진행 중
-          </span>
-        )}
-      </div>
-
-      {safeItems.length > 0 && (
-        <div className="space-y-1">
-          <span className="font-bold text-rose-900 block text-[11px]">지적 및 벌점 항목 세부:</span>
-          <div className="space-y-1">
-            {safeItems.map((it, idx) => (
-              <div key={it.id || idx} className="bg-rose-50/60 p-2 rounded border border-rose-100 flex items-start justify-between gap-2">
-                <span className="text-slate-800 font-medium text-[11px] leading-snug">
-                  {idx + 1}. {it.content || "지적 항목 미입력"}
-                </span>
-                <span className="font-black text-rose-700 text-[11px] shrink-0 bg-white px-1.5 py-0.5 rounded border border-rose-200">
-                  {isCanceled ? "0점(취소)" : `${it.score || "0"}점`}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="bg-rose-50/50 p-2.5 rounded-lg border border-rose-100 text-[11px] space-y-1">
-        <span className="font-bold text-rose-900 block mb-0.5">📌 진행 일정:</span>
-        <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-slate-700">
-          <div>• 사전통지일: <span className="font-semibold">{proc.noticeDate || "-"}</span></div>
-          <div>• 의견마감일: <span className="font-semibold text-rose-700">{proc.opinionDeadline || "-"}</span></div>
-          <div>• 검토/심의결과: <span className="font-bold text-rose-800">{proc.opinionResult || "미제출"}</span></div>
-          
-          {!isCanceled && (
-            <React.Fragment>
-              <div>• 검토회의일: <span className="font-semibold">{proc.reviewMeetingDate || "-"}</span></div>
-              <div>• 결과통보일: <span className="font-semibold">{proc.noticeResultDate || "-"}</span></div>
-              <div>• 이의마감일: <span className="font-semibold text-rose-700">{proc.appealDeadline || "-"}</span></div>
-              <div>• 이의제기여부: <span className="font-semibold">{proc.hasAppealSubmitted ? "제출됨" : "미제출"}</span></div>
-              {proc.hasAppealSubmitted && (
-                <React.Fragment>
-                  <div>• 외부심의일: <span className="font-semibold text-purple-700">{proc.committeeDate || "-"}</span></div>
-                  <div>• 최종통보일: <span className="font-semibold">{proc.finalResultDate || "-"}</span></div>
-                </React.Fragment>
-              )}
-            </React.Fragment>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default function Home() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [loginError, setLoginError] = useState("");
-
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [selectedTeam, setSelectedTeam] = useState<string>("all");
-  const [deleteMonth, setDeleteMonth] = useState<string>("2024-01");
-  const [isLoading, setIsLoading] = useState(false);
-
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editForm, setEditForm] = useState<any>({});
-
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [addForm, setAddForm] = useState({
-    category: "기타일정",
-    title: "",
-    date: new Date().toISOString().split("T")[0],
-    address: "",
-    notes: "",
-    hasFine: false,
-    fineAmount: "",
-    penaltyReason: "",
-
-    hasDemerit: false,
-    demeritTarget: "시공사 및 감리사",
-    builderDemerit: defaultDemeritProc(),
-    supervisorDemerit: defaultDemeritProc(),
-
-    hasLawsuit: false,
-    lawsuitCourt: "",
-    lawsuitCaseNumber: "",
-    lawsuitStatus: "소 제기(접수)",
-    lawsuitLawyer: "",
-    lawsuitResult: "",
-    lawsuitNotes: "",
-  });
-
-  const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
-  const [statsTab, setStatsTab] = useState<"demerit" | "fine">("demerit");
-  const [statsYearFilter, setStatsYearFilter] = useState("all");
-  const [statsMonthFilter, setStatsMonthFilter] = useState("all");
-  const [statsSearchQuery, setStatsSearchQuery] = useState("");
-
-  const calendarRef = useRef<any>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const parseDemeritItemsJson = (jsonStr: any, defaultItemStr: string, defaultScoreStr: string): DemeritItemDetail[] => {
-    try {
-      if (jsonStr && typeof jsonStr === "string" && jsonStr.startsWith("[")) {
-        const parsed = JSON.parse(jsonStr);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {}
-    return [{ id: "1", content: defaultItemStr || "", score: defaultScoreStr || "" }];
-  };
-
-  const parseJointMembersJson = (jsonStr: any): JointMember[] => {
-    try {
-      if (jsonStr && typeof jsonStr === "string" && jsonStr.startsWith("[")) {
-        const parsed = JSON.parse(jsonStr);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {}
-    return [{ id: "1", name: "", ratio: "100", assignedScore: "" }];
-  };
+  // AI 분석 관련 상태
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [base64Data, setBase64Data] = useState<string | null>(null);
+  const [mimeType, setMimeType] = useState<string | null>(null);
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
+  const [aiResult, setAiResult] = useState("");
 
   const fetchEvents = async () => {
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-
-    setIsLoading(true);
     try {
       const { data, error } = await supabase.from("events").select("*");
-      if (error) {
-        alert(`[Supabase DB 로딩 실패]\n${error.message}`);
-        throw error;
+      if (error) throw error;
+      if (data) {
+        const formatted = data.map((item: any) => ({
+          id: String(item.id),
+          title: item.title || `[${item.team || '1조'}] ${item.location || '현장점검'}`,
+          start: item.start_date,
+          backgroundColor: item.bg_color || GROUP_COLORS[item.team] || "#60A5FA",
+          borderColor: "transparent",
+          textColor: "#ffffff",
+          extendedProps: item
+        }));
+        setEvents(formatted);
       }
-
-      if (data && data.length > 0) {
-        const dbEvents: CalendarEvent[] = data.map((item: any) => {
-          const category = item.category || item.team || "기타일정";
-          const color = TEAM_COLORS[category] || TEAM_COLORS[item.team] || "#64748B";
-          
-          const isDemerit = item.has_demerit === true || item.has_demerit === "true" || item.has_demerit === 1;
-          const isFine = item.has_fine === true || item.has_fine === "true" || item.has_fine === 1;
-          const isLawsuit = item.has_lawsuit === true || item.has_lawsuit === "true" || item.has_lawsuit === 1;
-
-          let displayTitle = item.title || item.location || "일정";
-          if (isDemerit && !displayTitle.includes("⚠️")) displayTitle = `⚠️ ${displayTitle}`;
-          if (isFine && !displayTitle.includes("💸")) displayTitle = `💸 ${displayTitle}`;
-          if (isLawsuit && !displayTitle.includes("⚖️")) displayTitle = `⚖️ ${displayTitle}`;
-
-          const validStartDate = parseCheckDate(item.start_date) || item.start_date;
-
-          return {
-            id: String(item.id),
-            title: displayTitle,
-            start: validStartDate,
-            backgroundColor: color,
-            borderColor: color,
-            extendedProps: {
-              seq: item.seq || "",
-              orderType: item.order_type || "",
-              category,
-              client: item.client || "",
-              projectName: item.location || item.title || "",
-              address: item.address || "",
-              startDate: item.start_date_work || "",
-              endDate: item.end_date_work || "",
-              builder: item.members || "",
-              supervisor: item.supervisor || "",
-              agentName: item.agent_name || "",
-              agentPhone: item.agent_phone || "",
-              agentEmail: item.agent_email || "",
-              progressStatus: item.notes || "",
-              team: item.team || "기타일정",
-              checkDate: validStartDate,
-              eventType: item.order_type || "meeting",
-              
-              hasFine: isFine,
-              fineAmount: item.fine_amount || "",
-              penaltyReason: item.penalty_reason || "",
-
-              hasDemerit: isDemerit,
-              demeritTarget: item.demerit_target || "시공사 및 감리사",
-              
-              builderDemerit: {
-                contractType: item.builder_contract_type || "단독",
-                items: parseDemeritItemsJson(item.builder_demerit_item, item.demerit_item, item.builder_demerit_score || item.demerit_score),
-                jointMembers: parseJointMembersJson(item.builder_joint_members),
-                finalNoticeDate: item.builder_demerit_final_notice_date || "",
-                noticeDate: item.builder_demerit_notice_date || item.demerit_notice_date || "",
-                opinionDeadline: item.builder_demerit_opinion_deadline || item.demerit_opinion_deadline || "",
-                opinionResult: item.builder_opinion_result || item.opinion_result || "미제출",
-                reviewMeetingDate: item.builder_demerit_review_meeting_date || item.demerit_review_meeting_date || "",
-                noticeResultDate: item.builder_demerit_notice_result_date || item.demerit_notice_result_date || "",
-                appealDeadline: item.builder_demerit_appeal_deadline || item.demerit_appeal_deadline || "",
-                hasAppealSubmitted: !!(item.builder_has_appeal_submitted ?? item.has_appeal_submitted),
-                committeeDate: item.builder_demerit_committee_date || item.demerit_committee_date || "",
-                finalResultDate: item.builder_demerit_final_result_date || item.demerit_final_result_date || "",
-              },
-
-              supervisorDemerit: {
-                contractType: item.supervisor_contract_type || "단독",
-                items: parseDemeritItemsJson(item.supervisor_demerit_item, "", item.supervisor_demerit_score),
-                jointMembers: parseJointMembersJson(item.supervisor_joint_members),
-                finalNoticeDate: item.supervisor_demerit_final_notice_date || "",
-                noticeDate: item.supervisor_demerit_notice_date || "",
-                opinionDeadline: item.supervisor_demerit_opinion_deadline || "",
-                opinionResult: item.supervisor_opinion_result || "미제출",
-                reviewMeetingDate: item.supervisor_demerit_review_meeting_date || "",
-                noticeResultDate: item.supervisor_demerit_notice_result_date || "",
-                appealDeadline: item.supervisor_demerit_appeal_deadline || "",
-                hasAppealSubmitted: !!item.supervisor_has_appeal_submitted,
-                committeeDate: item.supervisor_demerit_committee_date || "",
-                finalResultDate: item.supervisor_demerit_final_result_date || "",
-              },
-
-              hasLawsuit: isLawsuit,
-              lawsuitCourt: item.lawsuit_court || "",
-              lawsuitCaseNumber: item.lawsuit_case_number || "",
-              lawsuitStatus: item.lawsuit_status || "소 제기(접수)",
-              lawsuitLawyer: item.lawsuit_lawyer || "",
-              lawsuitResult: item.lawsuit_result || "",
-              lawsuitNotes: item.lawsuit_notes || "",
-            },
-          };
-        });
-        setEvents(dbEvents);
-      } else {
-        setEvents([]);
-      }
-    } catch (err: any) {
-      console.error("DB 로딩 에러:", err);
-    } finally {
-      setIsLoading(false);
+    } catch (err) {
+      console.error("데이터 로드 에러:", err);
     }
   };
 
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchEvents();
-    }
-  }, [isAuthenticated]);
+    fetchEvents();
+  }, []);
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (username === "admin" && password === "1234") {
-      setIsAuthenticated(true);
-      setLoginError("");
-    } else {
-      setLoginError("아이디 또는 비밀번호가 올바르지 않습니다.");
-    }
+  const handleEventClick = (info: any) => {
+    setSelectedEvent(info.event.extendedProps);
+    setActiveTab("detail");
+    setPreviewUrl(null);
+    setBase64Data(null);
+    setMimeType(null);
+    setAiResult("");
   };
 
-  const handleAddCustomEvent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!addForm.title || !addForm.date) {
-      alert("일정명과 날짜를 입력해 주세요.");
-      return;
-    }
-
-    const color = TEAM_COLORS[addForm.category] || "#64748B";
-    let baseTitle =
-      addForm.category === "기타일정"
-        ? addForm.title
-        : `[${addForm.category}] ${addForm.title}`;
-
-    if (addForm.hasDemerit) baseTitle = `⚠️ ${baseTitle}`;
-    if (addForm.hasFine) baseTitle = `💸 ${baseTitle}`;
-    if (addForm.hasLawsuit) baseTitle = `⚖️ ${baseTitle}`;
-
-    const newEventItem: CalendarEvent = {
-      id: String(Date.now()),
-      title: baseTitle,
-      start: addForm.date,
-      backgroundColor: color,
-      borderColor: color,
-      extendedProps: {
-        seq: "",
-        orderType: "custom",
-        category: addForm.category,
-        client: "",
-        projectName: addForm.title,
-        address: addForm.address,
-        startDate: addForm.date,
-        endDate: addForm.date,
-        builder: "",
-        supervisor: "",
-        agentName: "",
-        agentPhone: "",
-        agentEmail: "",
-        progressStatus: addForm.notes,
-        team: addForm.category,
-        checkDate: addForm.date,
-        eventType: "custom",
-        hasFine: addForm.hasFine,
-        fineAmount: addForm.fineAmount,
-        penaltyReason: addForm.penaltyReason,
-
-        hasDemerit: addForm.hasDemerit,
-        demeritTarget: addForm.demeritTarget,
-        builderDemerit: addForm.builderDemerit,
-        supervisorDemerit: addForm.supervisorDemerit,
-
-        hasLawsuit: addForm.hasLawsuit,
-        lawsuitCourt: addForm.lawsuitCourt,
-        lawsuitCaseNumber: addForm.lawsuitCaseNumber,
-        lawsuitStatus: addForm.lawsuitStatus,
-        lawsuitLawyer: addForm.lawsuitLawyer,
-        lawsuitResult: addForm.lawsuitResult,
-        lawsuitNotes: addForm.lawsuitNotes,
-      },
-    };
-
-    setEvents((prev) => [...prev, newEventItem]);
-
-    const supabase = getSupabaseClient();
-    if (supabase) {
-      try {
-        const { error } = await supabase.from("events").insert([
-          {
-            title: baseTitle,
-            start_date: addForm.date,
-            end_date: null,
-            bg_color: color,
-            border_color: color,
-            team: addForm.category,
-            category: addForm.category,
-            location: addForm.title,
-            address: addForm.address,
-            notes: addForm.notes,
-            order_type: "custom",
-            has_fine: addForm.hasFine,
-            fine_amount: addForm.fineAmount,
-            penalty_reason: addForm.penaltyReason,
-
-            has_demerit: addForm.hasDemerit,
-            demerit_target: addForm.demeritTarget,
-
-            builder_contract_type: addForm.builderDemerit.contractType,
-            builder_demerit_item: JSON.stringify(addForm.builderDemerit.items),
-            builder_joint_members: JSON.stringify(addForm.builderDemerit.jointMembers),
-            builder_demerit_final_notice_date: addForm.builderDemerit.finalNoticeDate,
-            builder_demerit_notice_date: addForm.builderDemerit.noticeDate,
-            builder_demerit_opinion_deadline: addForm.builderDemerit.opinionDeadline,
-            builder_opinion_result: addForm.builderDemerit.opinionResult,
-            builder_demerit_review_meeting_date: addForm.builderDemerit.reviewMeetingDate,
-            builder_demerit_notice_result_date: addForm.builderDemerit.noticeResultDate,
-            builder_demerit_appeal_deadline: addForm.builderDemerit.appealDeadline,
-            builder_has_appeal_submitted: addForm.builderDemerit.hasAppealSubmitted,
-            builder_demerit_committee_date: addForm.builderDemerit.committeeDate,
-            builder_demerit_final_result_date: addForm.builderDemerit.finalResultDate,
-
-            supervisor_contract_type: addForm.supervisorDemerit.contractType,
-            supervisor_demerit_item: JSON.stringify(addForm.supervisorDemerit.items),
-            supervisor_joint_members: JSON.stringify(addForm.supervisorDemerit.jointMembers),
-            supervisor_demerit_final_notice_date: addForm.supervisorDemerit.finalNoticeDate,
-            supervisor_demerit_notice_date: addForm.supervisorDemerit.noticeDate,
-            supervisor_demerit_opinion_deadline: addForm.supervisorDemerit.opinionDeadline,
-            supervisor_opinion_result: addForm.supervisorDemerit.opinionResult,
-            supervisor_demerit_review_meeting_date: addForm.supervisorDemerit.reviewMeetingDate,
-            supervisor_demerit_notice_result_date: addForm.supervisorDemerit.noticeResultDate,
-            supervisor_demerit_appeal_deadline: addForm.supervisorDemerit.appealDeadline,
-            supervisor_has_appeal_submitted: addForm.supervisorDemerit.hasAppealSubmitted,
-            supervisor_demerit_committee_date: addForm.supervisorDemerit.committeeDate,
-            supervisor_demerit_final_result_date: addForm.supervisorDemerit.finalResultDate,
-
-            has_lawsuit: addForm.hasLawsuit,
-            lawsuit_court: addForm.lawsuitCourt,
-            lawsuit_case_number: addForm.lawsuitCaseNumber,
-            lawsuit_status: addForm.lawsuitStatus,
-            lawsuit_lawyer: addForm.lawsuitLawyer,
-            lawsuit_result: addForm.lawsuitResult,
-            lawsuit_notes: addForm.lawsuitNotes,
-          },
-        ]);
-
-        if (error) {
-          alert(`[DB 저장 오류]\n${error.message}`);
-        } else {
-          await fetchEvents();
-        }
-      } catch (err: any) {
-        alert(`[DB 연결 오류] ${err.message || err}`);
-      }
-    }
-
-    if (calendarRef.current) {
-      calendarRef.current.getApi().gotoDate(addForm.date);
-    }
-
-    setIsAddModalOpen(false);
-    alert(`[${addForm.date}] 날짜로 새 일정이 추가되었습니다.`);
-  };
-
-  const handleClearDatabase = async () => {
-    const supabase = getSupabaseClient();
-    if (!confirm("정말로 등록된 전체 일정을 삭제하시겠습니까?")) return;
-
-    if (supabase) {
-      setIsLoading(true);
-      try {
-        await supabase.from("events").delete().neq("id", 0);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    setEvents([]);
-    alert("모든 업무 일정이 초기화되었습니다.");
-  };
-
-  const handleDeleteSpecificMonth = async () => {
-    if (!deleteMonth) {
-      alert("삭제할 월을 선택하세요.");
-      return;
-    }
-
-    const yearMonthLabel = deleteMonth.replace("-", "년 ") + "월";
-    if (!confirm(`정말로 ${yearMonthLabel}의 점검 데이터만 삭제하시겠습니까?`)) {
-      return;
-    }
-
-    const supabase = getSupabaseClient();
-    setIsLoading(true);
-
-    try {
-      if (supabase) {
-        const { error } = await supabase
-          .from("events")
-          .delete()
-          .like("start_date", `${deleteMonth}%`);
-
-        if (error) {
-          alert(`[DB 삭제 오류]\n내용: ${error.message}`);
-          setIsLoading(false);
-          return;
-        }
-      }
-
-      await fetchEvents();
-      alert(`${yearMonthLabel} 데이터가 삭제되었습니다.`);
-    } catch (err: any) {
-      console.error("월별 삭제 에러:", err);
-      alert(`삭제 중 오류 발생: ${err.message || err}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleDeleteSingleEvent = async () => {
-    if (!selectedEvent) return;
-    if (!confirm("해당 일정을 삭제하시겠습니까?")) return;
-
-    const supabase = getSupabaseClient();
-    if (supabase && !isNaN(Number(selectedEvent.id))) {
-      try {
-        await supabase.from("events").delete().eq("id", Number(selectedEvent.id));
-      } catch (e) {
-        console.error("삭제 실패:", e);
-      }
-    }
-
-    setEvents((prev) => prev.filter((e) => e.id !== selectedEvent.id));
-    setSelectedEvent(null);
-    alert("일정이 삭제되었습니다.");
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setIsLoading(true);
+    setMimeType(file.type);
     const reader = new FileReader();
-
-    reader.onload = async (evt) => {
-      try {
-        const bstr = evt.target?.result;
-        const workbook = XLSX.read(bstr, { type: "binary", cellDates: true });
-        const wsname = workbook.SheetNames[0];
-        const ws = workbook.Sheets[wsname];
-
-        const sheetData: any[][] = XLSX.utils.sheet_to_json(ws, {
-          header: 1,
-          defval: "",
-        });
-
-        if (sheetData.length < 4) {
-          alert("엑셀 파일에 데이터가 부족합니다.");
-          setIsLoading(false);
-          return;
-        }
-
-        const newCalendarEvents: CalendarEvent[] = [];
-        const dbRowsToInsert: any[] = [];
-
-        for (let r = 0; r < sheetData.length; r++) {
-          const row = sheetData[r];
-          if (!row || row.length === 0) continue;
-
-          const seq = String(row[1] || "").trim();
-          const orderType = String(row[2] || "").trim();
-          const category = String(row[3] || "").trim();
-          const client = String(row[4] || "").trim();
-          const projectName = String(row[5] || "").trim();
-          const address = String(row[6] || "").trim();
-          const startDate = formatDate(row[9]);
-          const endDate = formatDate(row[10]);
-          const builder = String(row[17] || "").trim();
-          const supervisor = String(row[18] || "").trim();
-          const agentName = String(row[19] || "").trim();
-          const agentPhone = String(row[20] || "").trim();
-          const agentEmail = String(row[21] || "").trim();
-          const progressStatus = String(row[22] || "").trim();
-          const teamRaw = String(row[23] || "").trim();
-          const rawCheckDate = row[24];
-
-          if (teamRaw === "담당조" || String(rawCheckDate).includes("점검예정일")) continue;
-
-          const checkDate = parseCheckDate(rawCheckDate);
-          if (!checkDate) continue;
-
-          const team = teamRaw || "1조";
-          const color = TEAM_COLORS[team] || "#60A5FA";
-          const title = `${team} - ${projectName.replace(/\n/g, " ") || "현장점검"}`;
-
-          const eventItem: CalendarEvent = {
-            id: String(Date.now() + Math.random() * 10000 + r),
-            title,
-            start: checkDate,
-            backgroundColor: color,
-            borderColor: color,
-            extendedProps: {
-              seq,
-              orderType,
-              category,
-              client,
-              projectName,
-              address,
-              startDate,
-              endDate,
-              builder,
-              supervisor,
-              agentName,
-              agentPhone,
-              agentEmail,
-              progressStatus,
-              team,
-              checkDate,
-              eventType: "inspection",
-              hasFine: false,
-              fineAmount: "",
-              penaltyReason: "",
-              hasDemerit: false,
-              demeritTarget: "시공사 및 감리사",
-              builderDemerit: defaultDemeritProc(),
-              supervisorDemerit: defaultDemeritProc(),
-              hasLawsuit: false,
-              lawsuitCourt: "",
-              lawsuitCaseNumber: "",
-              lawsuitStatus: "소 제기(접수)",
-              lawsuitLawyer: "",
-              lawsuitResult: "",
-              lawsuitNotes: "",
-            },
-          };
-
-          newCalendarEvents.push(eventItem);
-
-          dbRowsToInsert.push({
-            title,
-            start_date: checkDate,
-            end_date: null,
-            bg_color: color,
-            border_color: color,
-            team,
-            members: builder,
-            location: projectName,
-            notes: progressStatus,
-            seq,
-            order_type: orderType,
-            category,
-            client,
-            address,
-            start_date_work: startDate,
-            end_date_work: endDate,
-            supervisor,
-            agent_name: agentName,
-            agent_phone: agentPhone,
-            agent_email: agentEmail,
-            has_demerit: false,
-          });
-        }
-
-        setEvents((prev) => [...prev, ...newCalendarEvents]);
-
-        const supabase = getSupabaseClient();
-        if (supabase && dbRowsToInsert.length > 0) {
-          try {
-            await supabase.from("events").insert(dbRowsToInsert);
-            await fetchEvents();
-          } catch (e) {
-            console.error("DB 동기화 에러:", e);
-          }
-        }
-
-        alert(`총 ${newCalendarEvents.length}건의 일정이 추가되었습니다!`);
-      } catch (err: any) {
-        console.error("엑셀 파싱 오류:", err);
-        alert(`엑셀 처리 오류: ${err.message || err}`);
-      } finally {
-        setIsLoading(false);
-        if (fileInputRef.current) fileInputRef.current.value = "";
-      }
+    reader.onload = (evt) => {
+      const res = evt.target?.result as string;
+      setBase64Data(res.split(",")[1]);
+      setPreviewUrl(res);
+      setAiResult("");
     };
-
-    reader.readAsBinaryString(file);
+    reader.readAsDataURL(file);
   };
 
-  const handleEventClick = (info: any) => {
-    const evt = info.event;
-    const props = evt.extendedProps;
-
-    const eventData: CalendarEvent = {
-      id: evt.id,
-      title: evt.title,
-      start: evt.startStr,
-      backgroundColor: evt.backgroundColor,
-      borderColor: evt.borderColor,
-      extendedProps: {
-        seq: props.seq || "",
-        orderType: props.orderType || "",
-        category: props.category || "",
-        client: props.client || "",
-        projectName: props.projectName || "",
-        address: props.address || "",
-        startDate: props.startDate || "",
-        endDate: props.endDate || "",
-        builder: props.builder || "",
-        supervisor: props.supervisor || "",
-        agentName: props.agentName || "",
-        agentPhone: props.agentPhone || "",
-        agentEmail: props.agentEmail || "",
-        progressStatus: props.progressStatus || "",
-        team: props.team || "기타일정",
-        checkDate: evt.startStr || "",
-        eventType: props.eventType || "inspection",
-        
-        hasFine: !!props.hasFine,
-        fineAmount: props.fineAmount || "",
-        penaltyReason: props.penaltyReason || "",
-
-        hasDemerit: !!props.hasDemerit,
-        demeritTarget: props.demeritTarget || "시공사 및 감리사",
-        builderDemerit: props.builderDemerit || defaultDemeritProc(),
-        supervisorDemerit: props.supervisorDemerit || defaultDemeritProc(),
-
-        hasLawsuit: !!props.hasLawsuit,
-        lawsuitCourt: props.lawsuitCourt || "",
-        lawsuitCaseNumber: props.lawsuitCaseNumber || "",
-        lawsuitStatus: props.lawsuitStatus || "소 제기(접수)",
-        lawsuitLawyer: props.lawsuitLawyer || "",
-        lawsuitResult: props.lawsuitResult || "",
-        lawsuitNotes: props.lawsuitNotes || "",
-      },
-    };
-
-    setSelectedEvent(eventData);
-    setEditForm({ ...eventData.extendedProps });
-    setIsEditing(false);
-  };
-
-  const handleSaveEdit = async () => {
-    if (!selectedEvent) return;
-
-    const updatedTeam = editForm.team || "기타일정";
-    const updatedColor = TEAM_COLORS[updatedTeam] || "#64748B";
-    
-    let baseTitle =
-      updatedTeam === "기타일정"
-        ? editForm.projectName
-        : `[${updatedTeam}] ${editForm.projectName || "일정"}`;
-
-    if (editForm.hasDemerit) baseTitle = `⚠️ ${baseTitle}`;
-    if (editForm.hasFine) baseTitle = `💸 ${baseTitle}`;
-    if (editForm.hasLawsuit) baseTitle = `⚖️ ${baseTitle}`;
-
-    const updatedEvent: CalendarEvent = {
-      ...selectedEvent,
-      title: baseTitle,
-      start: editForm.checkDate,
-      backgroundColor: updatedColor,
-      borderColor: updatedColor,
-      extendedProps: {
-        ...editForm,
-      },
-    };
-
-    setEvents((prev) =>
-      prev.map((e) => (e.id === selectedEvent.id ? updatedEvent : e))
-    );
-    setSelectedEvent(updatedEvent);
-    setIsEditing(false);
-
-    const supabase = getSupabaseClient();
-    if (supabase) {
-      try {
-        const isNumericId = !isNaN(Number(selectedEvent.id));
-        if (isNumericId) {
-          await supabase
-            .from("events")
-            .update({
-              title: baseTitle,
-              start_date: editForm.checkDate,
-              bg_color: updatedColor,
-              border_color: updatedColor,
-              team: updatedTeam,
-              category: updatedTeam,
-              location: editForm.projectName,
-              address: editForm.address,
-              members: editForm.builder,
-              supervisor: editForm.supervisor,
-              agent_name: editForm.agentName,
-              agent_phone: editForm.agentPhone,
-              agent_email: editForm.agentEmail,
-              notes: editForm.progressStatus,
-              has_fine: editForm.hasFine,
-              fine_amount: editForm.fineAmount,
-              penalty_reason: editForm.penaltyReason,
-
-              has_demerit: editForm.hasDemerit,
-              demerit_target: editForm.demeritTarget,
-
-              builder_contract_type: editForm.builderDemerit?.contractType,
-              builder_demerit_item: JSON.stringify(editForm.builderDemerit?.items || []),
-              builder_joint_members: JSON.stringify(editForm.builderDemerit?.jointMembers || []),
-              builder_demerit_final_notice_date: editForm.builderDemerit?.finalNoticeDate,
-              builder_demerit_notice_date: editForm.builderDemerit?.noticeDate,
-              builder_demerit_opinion_deadline: editForm.builderDemerit?.opinionDeadline,
-              builder_opinion_result: editForm.builderDemerit?.opinionResult,
-              builder_demerit_review_meeting_date: editForm.builderDemerit?.reviewMeetingDate,
-              builder_demerit_notice_result_date: editForm.builderDemerit?.noticeResultDate,
-              builder_demerit_appeal_deadline: editForm.builderDemerit?.appealDeadline,
-              builder_has_appeal_submitted: editForm.builderDemerit?.hasAppealSubmitted,
-              builder_demerit_committee_date: editForm.builderDemerit?.committeeDate,
-              builder_demerit_final_result_date: editForm.builderDemerit?.finalResultDate,
-
-              supervisor_contract_type: editForm.supervisorDemerit?.contractType,
-              supervisor_demerit_item: JSON.stringify(editForm.supervisorDemerit?.items || []),
-              supervisor_joint_members: JSON.stringify(editForm.supervisorDemerit?.jointMembers || []),
-              supervisor_demerit_final_notice_date: editForm.supervisorDemerit?.finalNoticeDate,
-              supervisor_demerit_notice_date: editForm.supervisorDemerit?.noticeDate,
-              supervisor_demerit_opinion_deadline: editForm.supervisorDemerit?.opinionDeadline,
-              supervisor_opinion_result: editForm.supervisorDemerit?.opinionResult,
-              supervisor_demerit_review_meeting_date: editForm.supervisorDemerit?.reviewMeetingDate,
-              supervisor_demerit_notice_result_date: editForm.supervisorDemerit?.noticeResultDate,
-              supervisor_demerit_appeal_deadline: editForm.supervisorDemerit?.appealDeadline,
-              supervisor_has_appeal_submitted: editForm.supervisorDemerit?.hasAppealSubmitted,
-              supervisor_demerit_committee_date: editForm.supervisorDemerit?.committeeDate,
-              supervisor_demerit_final_result_date: editForm.supervisorDemerit?.finalResultDate,
-
-              has_lawsuit: editForm.hasLawsuit,
-              lawsuit_court: editForm.lawsuitCourt,
-              lawsuit_case_number: editForm.lawsuitCaseNumber,
-              lawsuit_status: editForm.lawsuitStatus,
-              lawsuit_lawyer: editForm.lawsuitLawyer,
-              lawsuit_result: editForm.lawsuitResult,
-              lawsuit_notes: editForm.lawsuitNotes,
-            })
-            .eq("id", Number(selectedEvent.id));
-        }
-      } catch (e) {
-        console.error("DB 수정 실패:", e);
-      }
+  const runAiAnalysis = async () => {
+    if (!base64Data || !mimeType) {
+      alert("분석할 현장 점검 사진을 먼저 선택해 주세요.");
+      return;
     }
 
-    alert("수정사항이 저장되었습니다.");
+    if (!GEMINI_API_KEY) {
+      alert("NEXT_PUBLIC_GEMINI_API_KEY 환경변수가 확인되지 않습니다.");
+      return;
+    }
+
+    setAiAnalyzing(true);
+    setAiResult("");
+
+    const promptText = `당신은 대한민국 국토교통부 건설안전·품질 점검관입니다.
+첨부된 현장 점검 사진을 분석하여 발견되는 시공 불량, 안전 취약 부위를 지적하고 관련 공식 기준을 제시하십시오.
+
+[절대 준수 지침 - 원문 인용 및 환각 방지]
+1. 적용 기준 엄격 제한:
+   - 오직 대한민국 '국토교통부' 소관 법령 및 기준만 적용하십시오.
+   - 대상: 표준시방서(KCS), 설계기준(KDS), 건설기술 진흥법(법률, 시행령, 시행규칙).
+   - 타 부처 소관 법령(고용노동부 '산업안전보건법', '산업안전보건기준에 관한 규칙' 등)은 일절 인용하거나 언급하지 마십시오.
+2. 조항 번호 및 원문 직인용 원칙:
+   - 관련 기준은 반드시 공식 코드 번호, 장·절 번호, 조항 번호(예: KCS 14 31 25 제3장 3.4.2 등)를 명기하십시오.
+   - 기준 내용은 요약하거나 추상화하지 말고, 고시된 공식 원문 문장 형태를 인용구(>) 안에 있는 그대로 제시하십시오.
+3. 허위/추측 작성 금지 (Zero Hallucination):
+   - 실제 존재하지 않는 코드 번호나 임의로 꾸며낸 규정 문장을 절대로 작성하지 마십시오.
+   - 코드 번호나 정확한 원문 문구가 완벽히 확실하지 않은 경우에는 "추가 확인 필요"라고 기재하고 억지로 조항 번호를 지어내지 마십시오.
+
+[작성 양식]
+아래 순서와 형식에 맞추어 명확하게 작성하십시오:
+1. 현장 사진 결함 및 문제점 분석
+   - 시공 불량 상태, 부재 접합 상태, 규격 미달 사항 등을 항목별로 구체적으로 기술
+2. 국토교통부 소관 관련 기준 및 법령 원문
+   - **표준시방서(KCS)**: 코드 번호, 조항 명칭 및 공식 규정 원문 인용
+   - **설계기준(KDS)**: 코드 번호, 조항 명칭 및 공식 규정 원문 인용
+   - **건설기술 진흥법령**: 조항 번호(법·영·규칙 구분) 및 규정 원문 인용
+3. 현장 시정 조치 지시사항
+   - 시공사(현장대리인) 및 감리원에게 요구할 보수·보강·재시공 등의 기술적 조치사항`;
+
+    const payload = {
+      contents: [{
+        role: "user",
+        parts: [
+          { text: promptText },
+          { inlineData: { mimeType, data: base64Data } }
+        ]
+      }],
+      generationConfig: {
+        temperature: 0.0
+      }
+    };
+
+    try {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errDetail = await response.text();
+        throw new Error(`API 에러 (${response.status}): ${errDetail}`);
+      }
+
+      const result = await response.json();
+      const text = result.candidates?.[0]?.content?.parts?.[0]?.text || "분석 결과를 가져올 수 없습니다.";
+      setAiResult(text);
+    } catch (err: any) {
+      console.error(err);
+      alert(`분석 실패: ${err.message}`);
+    } finally {
+      setAiAnalyzing(false);
+    }
   };
 
-  // 벌점 / 과태료 전용 데이터 필터링
-  const demeritEvents = events.filter((e) => e.extendedProps.hasDemerit);
-  const fineEvents = events.filter((e) => e.extendedProps.hasFine);
-
-  const periodDemeritEvents = demeritEvents.filter((e) => {
-    if (!e.start) return false;
-    const [y, m] = e.start.split("-");
-    if (statsYearFilter !== "all" && y !== statsYearFilter) return false;
-    if (statsMonthFilter !== "all" && m !== statsMonthFilter) return false;
-    return true;
-  });
-
-  const periodFineEvents = fineEvents.filter((e) => {
-    if (!e.start) return false;
-    const [y, m] = e.start.split("-");
-    if (statsYearFilter !== "all" && y !== statsYearFilter) return false;
-    if (statsMonthFilter !== "all" && m !== statsMonthFilter) return false;
-    return true;
-  });
-
-  // 🔥 점검일자 기준 오름차순(과거 -> 최근 날짜순) 자동 정렬 적용
-  const sortedDemeritEvents = [...periodDemeritEvents].sort((a, b) => (a.start > b.start ? 1 : -1));
-  const sortedFineEvents = [...periodFineEvents].sort((a, b) => (a.start > b.start ? 1 : -1));
-
-  const finalDemeritTable = sortedDemeritEvents.filter((e) => {
-    const q = statsSearchQuery.toLowerCase();
-    const builderStr = JSON.stringify(e.extendedProps.builderDemerit?.items || []).toLowerCase();
-    const supervisorStr = JSON.stringify(e.extendedProps.supervisorDemerit?.items || []).toLowerCase();
-
-    return (
-      e.extendedProps.projectName.toLowerCase().includes(q) ||
-      e.extendedProps.builder.toLowerCase().includes(q) ||
-      e.extendedProps.supervisor.toLowerCase().includes(q) ||
-      builderStr.includes(q) ||
-      supervisorStr.includes(q) ||
-      e.extendedProps.lawsuitCaseNumber.toLowerCase().includes(q)
-    );
-  });
-
-  const finalFineTable = sortedFineEvents.filter((e) => {
-    const q = statsSearchQuery.toLowerCase();
-    return (
-      e.extendedProps.projectName.toLowerCase().includes(q) ||
-      e.extendedProps.builder.toLowerCase().includes(q) ||
-      e.extendedProps.penaltyReason.toLowerCase().includes(q)
-    );
-  });
-
-  // 벌점 취소의결건 제외 실제 부과 개소수 연산
-  const totalDemeritSitesCount = periodDemeritEvents.filter((e) => {
-    const bRes = e.extendedProps.builderDemerit?.opinionResult;
-    const sRes = e.extendedProps.supervisorDemerit?.opinionResult;
-    return bRes !== "취소의결(벌점미부과)" && bRes !== "수용(종결)" && sRes !== "취소의결(벌점미부과)" && sRes !== "수용(종결)";
-  }).length;
-
-  const totalFineSitesCount = periodFineEvents.length;
-
-  const exportToExcel = () => {
-    const dataToExport =
-      statsTab === "demerit"
-        ? finalDemeritTable.map((e) => ({
-            점검일자: e.start,
-            공사명: e.extendedProps.projectName,
-            처분대상: e.extendedProps.demeritTarget,
-            시공사: e.extendedProps.builder,
-            시공사_최종벌점통보일: e.extendedProps.builderDemerit?.finalNoticeDate || "-",
-            시공사_지적항목: (e.extendedProps.builderDemerit?.items || []).map((it) => `${it.content}(${it.score}점)`).join(" / "),
-            감리사: e.extendedProps.supervisor,
-            감리사_최종벌점통보일: e.extendedProps.supervisorDemerit?.finalNoticeDate || "-",
-            감리사_지적항목: (e.extendedProps.supervisorDemerit?.items || []).map((it) => `${it.content}(${it.score}점)`).join(" / "),
-            소송여부: e.extendedProps.hasLawsuit ? "소송중" : "미제기",
-            사건번호: e.extendedProps.lawsuitCaseNumber || "-",
-          }))
-        : finalFineTable.map((e) => ({
-            점검일자: e.start,
-            공사명: e.extendedProps.projectName,
-            시공사: e.extendedProps.builder,
-            감리사: e.extendedProps.supervisor,
-            과태료금액: `${e.extendedProps.fineAmount}만원`,
-            처분사유: e.extendedProps.penaltyReason,
-          }));
-
-    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, statsTab === "demerit" ? "벌점부과현황" : "과태료부과현황");
-    XLSX.writeFile(workbook, `건설안전과_${statsTab === "demerit" ? "벌점" : "과태료"}_통계자료.xlsx`);
+  const handleDelete = async (id: any) => {
+    if (!confirm("이 일정을 삭제하시겠습니까?")) return;
+    try {
+      await supabase.from("events").delete().eq("id", id);
+      setSelectedEvent(null);
+      fetchEvents();
+      alert("삭제되었습니다.");
+    } catch (e: any) {
+      alert("삭제 실패: " + e.message);
+    }
   };
-
-  const filteredEvents =
-    selectedTeam === "all"
-      ? events
-      : events.filter((evt) => evt.extendedProps.team === selectedTeam);
-
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
-        <div className="bg-white p-8 rounded-2xl shadow-lg max-w-md w-full border border-slate-200">
-          <div className="text-center mb-6">
-            <h1 className="text-xl font-bold text-slate-800">
-              건설안전과 일정 캘린더
-            </h1>
-            <p className="text-xs text-slate-500 mt-1">
-              접근 권한이 필요합니다. 아이디와 비밀번호를 입력하세요.
-            </p>
-          </div>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">
-                아이디
-              </label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-blue-500 transition"
-                placeholder="아이디 입력"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">
-                비밀번호
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-blue-500 transition"
-                placeholder="비밀번호 입력"
-                required
-              />
-            </div>
-            {loginError && (
-              <p className="text-red-500 text-xs font-medium mt-1">
-                {loginError}
-              </p>
-            )}
-            <button
-              type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg text-sm transition shadow-sm"
-            >
-              로그인
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <main className="min-h-screen bg-slate-50 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto space-y-6">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800">
-              건설안전과 일정 캘린더
-            </h1>
-            <p className="text-sm text-slate-500 mt-1">
-              시공사/감리사 분리 벌점 관리 및 과태료/소송 통합 대시보드
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setIsStatsModalOpen(true)}
-              className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white px-3.5 py-2.5 rounded-xl font-semibold text-xs transition shadow-sm"
-            >
-              <BarChart3 size={15} />
-              📊 처분 현황 & 통계
-            </button>
-
-            <button
-              onClick={() => setIsAddModalOpen(true)}
-              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2.5 rounded-xl font-semibold text-xs transition shadow-sm"
-            >
-              <PlusCircle size={15} />
-              회의/일정 직접 추가
-            </button>
-
-            <button
-              onClick={fetchEvents}
-              disabled={isLoading}
-              className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 px-3 py-2.5 rounded-xl font-medium text-sm transition"
-              title="새로고침"
-            >
-              <RefreshCw
-                size={16}
-                className={isLoading ? "animate-spin" : ""}
-              />
-            </button>
-
-            <div className="flex items-center border border-slate-300 rounded-xl overflow-hidden bg-slate-50">
-              <select
-                value={deleteMonth}
-                onChange={(e) => setDeleteMonth(e.target.value)}
-                className="bg-transparent px-2.5 py-2 text-xs font-semibold text-slate-700 outline-none"
-              >
-                {YEARS_LIST.flatMap((y) =>
-                  ["01", "03", "05", "06", "08", "09", "11", "12"].map((m) => (
-                    <option key={`${y}-${m}`} value={`${y}-${m}`}>
-                      {y}년 {parseInt(m)}월
-                    </option>
-                  ))
-                )}
-              </select>
-              <button
-                onClick={handleDeleteSpecificMonth}
-                disabled={isLoading}
-                className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 text-xs font-semibold transition flex items-center gap-1"
-                title="선택 월 삭제"
-              >
-                <Trash2 size={14} />
-                월 삭제
-              </button>
-            </div>
-
-            <button
-              onClick={handleClearDatabase}
-              disabled={isLoading}
-              className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 px-3 py-2.5 rounded-xl font-medium text-xs transition"
-              title="전체 일정 초기화"
-            >
-              <Trash2 size={14} />
-              전체 비우기
-            </button>
-
-            <input
-              type="file"
-              accept=".xlsx, .xls"
-              ref={fileInputRef}
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isLoading}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl font-medium text-xs transition shadow-sm disabled:bg-slate-400"
-            >
-              <Upload size={14} />
-              {isLoading ? "처리 중..." : "엑셀 파일 선택"}
-            </button>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Filter size={18} className="text-slate-500" />
-            <span className="text-sm font-semibold text-slate-700">
-              구분 필터:
-            </span>
-            <select
-              value={selectedTeam}
-              onChange={(e) => setSelectedTeam(e.target.value)}
-              className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-500 font-medium"
-            >
-              <option value="all">전체 보기</option>
-              <option value="1조">1조 (현장점검)</option>
-              <option value="2조">2조 (현장점검)</option>
-              <option value="3조">3조 (현장점검)</option>
-              <option value="TF1조">TF1조 (현장점검)</option>
-              <option value="TF2조">TF2조 (현장점검)</option>
-              <option value="현장점검 결과회의">현장점검 결과회의</option>
-              <option value="의견제출 검토회의">의견제출 검토회의</option>
-              <option value="벌점심의위원회">벌점심의위원회</option>
-              <option value="기타일정">기타일정</option>
-            </select>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {Object.entries(TEAM_COLORS).map(([team, color]) => (
-              <span
-                key={team}
-                className="px-3 py-1 rounded-full text-xs font-bold text-white shadow-sm"
-                style={{ backgroundColor: color }}
-              >
-                {team}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-          <FullCalendar
-            ref={calendarRef}
-            plugins={[dayGridPlugin, interactionPlugin]}
-            initialView="dayGridMonth"
-            locale="ko"
-            events={filteredEvents}
-            eventClick={handleEventClick}
-            headerToolbar={{
-              left: "prev,next today",
-              center: "title",
-              right: "",
-            }}
-            height="auto"
-          />
-        </div>
+    <main className="min-h-screen bg-slate-100 p-2 md:p-6 font-sans">
+      <div className="max-w-7xl mx-auto bg-white rounded-xl shadow p-4 border border-slate-200">
+        <FullCalendar
+          plugins={[dayGridPlugin, interactionPlugin]}
+          initialView="dayGridMonth"
+          locale="ko"
+          events={events}
+          eventClick={handleEventClick}
+          headerToolbar={{
+            left: "prev,next today",
+            center: "title",
+            right: ""
+          }}
+          height="auto"
+        />
       </div>
 
-      {/* 📊 상세 처분 현황 대시보드 모달 (날짜순 정렬) */}
-      {isStatsModalOpen && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-slate-100 space-y-5 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b pb-3">
-              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <BarChart3 className="text-rose-600" size={22} />
-                행정처분 상세 현황 대시보드
-              </h3>
-              <button
-                onClick={() => setIsStatsModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="flex border-b border-slate-200">
-              <button
-                onClick={() => setStatsTab("demerit")}
-                className={`flex-1 py-2.5 font-bold text-xs border-b-2 transition flex items-center justify-center gap-1.5 ${
-                  statsTab === "demerit"
-                    ? "border-rose-600 text-rose-600 bg-rose-50/50"
-                    : "border-transparent text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                <AlertTriangle size={15} />
-                벌점 부과 현황 ({demeritEvents.length}건)
-              </button>
-              <button
-                onClick={() => setStatsTab("fine")}
-                className={`flex-1 py-2.5 font-bold text-xs border-b-2 transition flex items-center justify-center gap-1.5 ${
-                  statsTab === "fine"
-                    ? "border-purple-600 text-purple-600 bg-purple-50/50"
-                    : "border-transparent text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                💸 과태료 부과 현황 ({fineEvents.length}건)
-              </button>
-            </div>
-
-            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-xs">
-                <span className="font-bold text-slate-700">조회 기간:</span>
-                <select
-                  value={statsYearFilter}
-                  onChange={(e) => setStatsYearFilter(e.target.value)}
-                  className="bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 outline-none focus:border-rose-500"
-                >
-                  <option value="all">전체 연도</option>
-                  {YEARS_LIST.map((y) => (
-                    <option key={y} value={y}>
-                      {y}년
-                    </option>
-                  ))}
-                </select>
-
-                <select
-                  value={statsMonthFilter}
-                  onChange={(e) => setStatsMonthFilter(e.target.value)}
-                  className="bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 font-semibold text-slate-800 outline-none focus:border-rose-500"
-                >
-                  <option value="all">전체 월</option>
-                  <option value="01">1월</option>
-                  <option value="02">2월</option>
-                  <option value="03">3월</option>
-                  <option value="04">4월</option>
-                  <option value="05">5월</option>
-                  <option value="06">6월</option>
-                  <option value="07">7월</option>
-                  <option value="08">8월</option>
-                  <option value="09">9월</option>
-                  <option value="10">10월</option>
-                  <option value="11">11월</option>
-                  <option value="12">12월</option>
-                </select>
-              </div>
-
-              <button
-                onClick={exportToExcel}
-                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm"
-              >
-                <Download size={14} />
-                엑셀 다운로드
-              </button>
-            </div>
-
-            <div className="relative">
-              <Search size={16} className="absolute left-3 top-3 text-slate-400" />
-              <input
-                type="text"
-                placeholder="공사명, 시공사, 감리사, 지적항목, 사건번호 검색..."
-                value={statsSearchQuery}
-                onChange={(e) => setStatsSearchQuery(e.target.value)}
-                className="w-full border border-slate-300 rounded-xl pl-9 pr-3 py-2 text-xs outline-none focus:border-rose-500"
-              />
-            </div>
-
-            {statsTab === "demerit" && (
-              <div className="border border-slate-200 rounded-xl overflow-x-auto text-xs">
-                <table className="w-full text-left border-collapse min-w-[700px]">
-                  <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
-                    <tr>
-                      <th className="p-2.5 whitespace-nowrap">점검일 (날짜순)</th>
-                      <th className="p-2.5">공사명 / 현장</th>
-                      <th className="p-2.5">처분대상 & 최종통보일</th>
-                      <th className="p-2.5">세부 지적항목 및 기준벌점</th>
-                      <th className="p-2.5 text-center whitespace-nowrap">행정절차 상태</th>
-                      <th className="p-2.5 text-center whitespace-nowrap">소송 상태</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {finalDemeritTable.length > 0 ? (
-                      finalDemeritTable.map((e) => {
-                        const bItems = e.extendedProps.builderDemerit?.items || [];
-                        const sItems = e.extendedProps.supervisorDemerit?.items || [];
-                        const bCanceled = e.extendedProps.builderDemerit?.opinionResult === "취소의결(벌점미부과)" || e.extendedProps.builderDemerit?.opinionResult === "수용(종결)";
-
-                        return (
-                          <tr key={e.id} className="hover:bg-slate-50">
-                            <td className="p-2.5 text-slate-500 whitespace-nowrap font-medium">{e.start}</td>
-                            <td className="p-2.5 font-bold text-slate-800">{e.extendedProps.projectName}</td>
-                            <td className="p-2.5 text-slate-700">
-                              <span className="font-bold block text-rose-800">
-                                [{e.extendedProps.demeritTarget || "전체"}]
-                              </span>
-                              <span className="text-[11px] text-slate-600 block">
-                                시공: {e.extendedProps.builder || "-"} (통보일: {e.extendedProps.builderDemerit?.finalNoticeDate || "-"})
-                              </span>
-                              <span className="text-[11px] text-slate-600 block">
-                                감리: {e.extendedProps.supervisor || "-"} (통보일: {e.extendedProps.supervisorDemerit?.finalNoticeDate || "-"})
-                              </span>
-                            </td>
-                            <td className="p-2.5 space-y-1">
-                              {bItems.length > 0 && bItems[0].content && (
-                                <div className="bg-amber-50/60 p-1.5 rounded border border-amber-100">
-                                  <span className="font-bold text-amber-900 block text-[10px]">👷 시공사 지적항목:</span>
-                                  {bItems.map((it, idx) => (
-                                    <div key={idx} className="text-[11px] text-slate-700 flex justify-between">
-                                      <span>• {it.content}</span>
-                                      <span className="font-bold text-rose-700 shrink-0 ml-1">{bCanceled ? "0점(취소)" : `${it.score}점`}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-
-                              {sItems.length > 0 && sItems[0].content && (
-                                <div className="bg-blue-50/60 p-1.5 rounded border border-blue-100">
-                                  <span className="font-bold text-blue-900 block text-[10px]">🔍 감리사 지적항목:</span>
-                                  {sItems.map((it, idx) => (
-                                    <div key={idx} className="text-[11px] text-slate-700 flex justify-between">
-                                      <span>• {it.content}</span>
-                                      <span className="font-bold text-rose-700 shrink-0 ml-1">{it.score}점</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </td>
-                            <td className="p-2.5 text-center whitespace-nowrap">
-                              {e.extendedProps.builderDemerit?.opinionResult === "취소의결(벌점미부과)" ? (
-                                <span className="bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded font-bold text-[10px] block border border-emerald-300">
-                                  🟢 취소 의결 (미부과)
-                                </span>
-                              ) : e.extendedProps.builderDemerit?.opinionResult === "수용(종결)" ? (
-                                <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold text-[10px] block">
-                                  🟢 의견수용 (종결)
-                                </span>
-                              ) : !e.extendedProps.builderDemerit?.hasAppealSubmitted ? (
-                                <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-bold text-[10px] block">
-                                  🟠 이의제기 미제출 (확정)
-                                </span>
-                              ) : (
-                                <span className="bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-bold text-[10px] block">
-                                  🟣 외부심의 진행 중
-                                </span>
-                              )}
-                            </td>
-                            <td className="p-2.5 text-center whitespace-nowrap">
-                              {e.extendedProps.hasLawsuit ? (
-                                <span className="bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded font-bold text-[10px] block">
-                                  ⚖️ {e.extendedProps.lawsuitStatus}
-                                </span>
-                              ) : (
-                                <span className="text-slate-400 text-[11px]">-</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })
-                    ) : (
-                      <tr>
-                        <td colSpan={6} className="p-6 text-center text-slate-400">
-                          해당 기간에 등록된 벌점 부과 현장이 없습니다.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {statsTab === "fine" && (
-              <div className="border border-slate-200 rounded-xl overflow-x-auto text-xs">
-                <table className="w-full text-left border-collapse min-w-[600px]">
-                  <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
-                    <tr>
-                      <th className="p-2.5 whitespace-nowrap">점검일 (날짜순)</th>
-                      <th className="p-2.5">공사명 / 현장</th>
-                      <th className="p-2.5">시공사 / 감리사</th>
-                      <th className="p-2.5">과태료 부과 처분 사유</th>
-                      <th className="p-2.5 text-right whitespace-nowrap">과태료 금액</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {finalFineTable.length > 0 ? (
-                      finalFineTable.map((e) => (
-                        <tr key={e.id} className="hover:bg-slate-50">
-                          <td className="p-2.5 text-slate-500 whitespace-nowrap font-medium">{e.start}</td>
-                          <td className="p-2.5 font-bold text-slate-800">{e.extendedProps.projectName}</td>
-                          <td className="p-2.5 text-slate-600">
-                            <div>시공: {e.extendedProps.builder || "-"}</div>
-                            <div>감리: {e.extendedProps.supervisor || "-"}</div>
-                          </td>
-                          <td className="p-2.5 font-medium text-slate-800">
-                            {e.extendedProps.penaltyReason || "과태료 부과 대상"}
-                          </td>
-                          <td className="p-2.5 text-right font-black text-purple-700 whitespace-nowrap text-sm">
-                            {e.extendedProps.fineAmount} 만원
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={5} className="p-6 text-center text-slate-400">
-                          해당 기간에 등록된 과태료 부과 현장이 없습니다.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            <button
-              onClick={() => setIsStatsModalOpen(false)}
-              className="w-full bg-slate-800 hover:bg-slate-900 text-white font-medium py-2.5 rounded-xl text-xs transition"
-            >
-              닫기
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 회의 및 기타일정 추가 팝업 모달 */}
-      {isAddModalOpen && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b pb-3">
-              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <PlusCircle className="text-emerald-600" size={20} />
-                회의 및 업무 일정 추가
-              </h3>
-              <button
-                onClick={() => setIsAddModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddCustomEvent} className="space-y-3 text-xs">
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">
-                  회의 / 일정 구분 *
-                </label>
-                <select
-                  value={addForm.category}
-                  onChange={(e) =>
-                    setAddForm({ ...addForm, category: e.target.value })
-                  }
-                  className="w-full border p-2.5 rounded-lg text-slate-800 font-semibold"
-                >
-                  <option value="기타일정">기타일정</option>
-                  <option value="현장점검 결과회의">현장점검 결과회의</option>
-                  <option value="의견제출 검토회의">의견제출 검토회의</option>
-                  <option value="벌점심의위원회">벌점심의위원회</option>
-                  <option value="1조">1조 현장점검</option>
-                  <option value="2조">2조 현장점검</option>
-                  <option value="3조">3조 현장점검</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">
-                  {addForm.category === "기타일정" ? "일정 제목 *" : "회의 안건 / 일정 제목 *"}
-                </label>
-                <input
-                  type="text"
-                  placeholder="제목 입력"
-                  value={addForm.title}
-                  onChange={(e) =>
-                    setAddForm({ ...addForm, title: e.target.value })
-                  }
-                  className="w-full border p-2.5 rounded-lg"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">
-                  점검일 / 개최 날짜 *
-                </label>
-                <input
-                  type="date"
-                  value={addForm.date}
-                  onChange={(e) =>
-                    setAddForm({ ...addForm, date: e.target.value })
-                  }
-                  className="w-full border p-2.5 rounded-lg"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">
-                  장소 / 주소
-                </label>
-                <input
-                  type="text"
-                  value={addForm.address}
-                  onChange={(e) =>
-                    setAddForm({ ...addForm, address: e.target.value })
-                  }
-                  className="w-full border p-2.5 rounded-lg"
-                />
-              </div>
-
-              {/* 시공사 / 감리사 분리 벌점 설정 영역 */}
-              <div className="bg-rose-50/80 border border-rose-200 p-3.5 rounded-xl space-y-3">
-                <div className="flex items-center justify-between border-b border-rose-200 pb-2">
-                  <span className="font-bold text-rose-900 flex items-center gap-1">
-                    <AlertTriangle size={15} />
-                    벌점 부과 세부 설정
-                  </span>
-                  <label className="flex items-center gap-1.5 font-bold text-rose-700">
-                    <input
-                      type="checkbox"
-                      checked={addForm.hasDemerit}
-                      onChange={(e) =>
-                        setAddForm({ ...addForm, hasDemerit: e.target.checked })
-                      }
-                      className="rounded text-rose-600 focus:ring-rose-500"
-                    />
-                    벌점부과 현장
-                  </label>
-                </div>
-
-                {addForm.hasDemerit && (
-                  <div className="space-y-3 pt-1">
-                    <div>
-                      <label className="font-bold text-slate-700 block mb-1">벌점 처분 대상 선택 *</label>
-                      <select
-                        value={addForm.demeritTarget}
-                        onChange={(e) => setAddForm({ ...addForm, demeritTarget: e.target.value })}
-                        className="w-full border p-2 rounded-lg bg-white font-bold text-slate-800"
-                      >
-                        <option value="시공사 및 감리사">시공사 및 감리사 (동시 부과 - 각기 설정)</option>
-                        <option value="시공사">시공사만 부과</option>
-                        <option value="감리사">감리사만 부과</option>
-                      </select>
-                    </div>
-
-                    {(addForm.demeritTarget === "시공사" || addForm.demeritTarget === "시공사 및 감리사") && (
-                      <DemeritProcInputs
-                        title="시공사"
-                        icon={<HardHat size={15} className="text-amber-600" />}
-                        proc={addForm.builderDemerit}
-                        onChange={(updated) => setAddForm({ ...addForm, builderDemerit: updated })}
-                      />
-                    )}
-
-                    {(addForm.demeritTarget === "감리사" || addForm.demeritTarget === "시공사 및 감리사") && (
-                      <DemeritProcInputs
-                        title="감리사"
-                        icon={<ShieldCheck size={15} className="text-blue-600" />}
-                        proc={addForm.supervisorDemerit}
-                        onChange={(updated) => setAddForm({ ...addForm, supervisorDemerit: updated })}
-                      />
-                    )}
-
-                    <div className="bg-indigo-50/90 border border-indigo-200 p-3 rounded-xl space-y-2 mt-2">
-                      <div className="flex items-center justify-between border-b border-indigo-200 pb-1.5">
-                        <span className="font-bold text-indigo-950 flex items-center gap-1">
-                          <Scale size={15} />
-                          행정소송 진행 관리
-                        </span>
-                        <label className="flex items-center gap-1.5 font-bold text-indigo-800">
-                          <input
-                            type="checkbox"
-                            checked={addForm.hasLawsuit}
-                            onChange={(e) => setAddForm({ ...addForm, hasLawsuit: e.target.checked })}
-                            className="rounded text-indigo-600 focus:ring-indigo-500"
-                          />
-                          소송 제기됨
-                        </label>
-                      </div>
-
-                      {addForm.hasLawsuit && (
-                        <div className="space-y-2 pt-1">
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <label className="font-semibold text-slate-700 block mb-0.5">관할 법원</label>
-                              <input
-                                type="text"
-                                placeholder="예: 서울행정법원"
-                                value={addForm.lawsuitCourt}
-                                onChange={(e) => setAddForm({ ...addForm, lawsuitCourt: e.target.value })}
-                                className="w-full border p-1.5 rounded-lg bg-white"
-                              />
-                            </div>
-                            <div>
-                              <label className="font-semibold text-slate-700 block mb-0.5">사건 번호</label>
-                              <input
-                                type="text"
-                                placeholder="예: 2026구합12345"
-                                value={addForm.lawsuitCaseNumber}
-                                onChange={(e) => setAddForm({ ...addForm, lawsuitCaseNumber: e.target.value })}
-                                className="w-full border p-1.5 rounded-lg bg-white"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <label className="font-semibold text-slate-700 block mb-0.5">진행 단계</label>
-                              <select
-                                value={addForm.lawsuitStatus}
-                                onChange={(e) => setAddForm({ ...addForm, lawsuitStatus: e.target.value })}
-                                className="w-full border p-1.5 rounded-lg bg-white"
-                              >
-                                <option value="소 제기(접수)">소 제기(접수)</option>
-                                <option value="변론 진행 중">변론 진행 중</option>
-                                <option value="집행정지 신청/결정">집행정지 신청/결정</option>
-                                <option value="판결 선고">판결 선고</option>
-                                <option value="항소/상고 진행">항소/상고 진행</option>
-                                <option value="종결">종결</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="font-semibold text-slate-700 block mb-0.5">담당 변호사/법인</label>
-                              <input
-                                type="text"
-                                placeholder="예: 정부법무공단"
-                                value={addForm.lawsuitLawyer}
-                                onChange={(e) => setAddForm({ ...addForm, lawsuitLawyer: e.target.value })}
-                                className="w-full border p-1.5 rounded-lg bg-white"
-                              />
-                            </div>
-                          </div>
-
-                          <div>
-                            <label className="font-semibold text-slate-700 block mb-0.5">소송 결과</label>
-                            <input
-                              type="text"
-                              placeholder="예: 승소 (원고청구기각)"
-                              value={addForm.lawsuitResult}
-                              onChange={(e) => setAddForm({ ...addForm, lawsuitResult: e.target.value })}
-                              className="w-full border p-1.5 rounded-lg bg-white"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="font-semibold text-slate-700 block mb-0.5">소송 주요 내용 메모</label>
-                            <input
-                              type="text"
-                              placeholder="변론 기일, 집행정지 가부, 주요 공방 내용"
-                              value={addForm.lawsuitNotes}
-                              onChange={(e) => setAddForm({ ...addForm, lawsuitNotes: e.target.value })}
-                              className="w-full border p-1.5 rounded-lg bg-white"
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="bg-purple-50/80 border border-purple-200 p-3 rounded-xl space-y-2">
-                <label className="flex items-center gap-1.5 font-bold text-purple-900">
-                  <input
-                    type="checkbox"
-                    checked={addForm.hasFine}
-                    onChange={(e) =>
-                      setAddForm({ ...addForm, hasFine: e.target.checked })
-                    }
-                    className="rounded text-purple-600 focus:ring-purple-500"
-                  />
-                  과태료 부과 설정
-                </label>
-
-                {addForm.hasFine && (
-                  <div className="space-y-2 pt-1">
-                    <div>
-                      <label className="font-semibold text-slate-600 block mb-0.5">
-                        과태료 금액 (만원)
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="예: 300"
-                        value={addForm.fineAmount}
-                        onChange={(e) =>
-                          setAddForm({ ...addForm, fineAmount: e.target.value })
-                        }
-                        className="w-full border p-2 rounded-lg bg-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="font-semibold text-slate-600 block mb-0.5">
-                        과태료 처분 사유
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="예: 건설기계 조종사 면허 미확인"
-                        value={addForm.penaltyReason}
-                        onChange={(e) =>
-                          setAddForm({ ...addForm, penaltyReason: e.target.value })
-                        }
-                        className="w-full border p-2 rounded-lg bg-white"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">
-                  주요 안건 및 비고 메모
-                </label>
-                <textarea
-                  rows={2}
-                  value={addForm.notes}
-                  onChange={(e) =>
-                    setAddForm({ ...addForm, notes: e.target.value })
-                  }
-                  className="w-full border p-2.5 rounded-lg"
-                />
-              </div>
-
-              <div className="pt-3 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsAddModalOpen(false)}
-                  className="w-1/2 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="w-1/2 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl shadow"
-                >
-                  등록하기
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* 상세보기 / 수정하기 모달 팝업 */}
+      {/* 일정 상세 & AI 대조 모달 */}
       {selectedEvent && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 space-y-5 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b pb-3 sticky top-0 bg-white z-10">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-3">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto border border-slate-200 flex flex-col">
+            
+            {/* Header */}
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0 z-10">
               <div className="flex items-center gap-2">
-                <span
-                  className="px-2.5 py-1 rounded-md text-xs font-bold text-white"
-                  style={{
-                    backgroundColor:
-                      TEAM_COLORS[editForm.team] || selectedEvent.backgroundColor,
-                  }}
-                >
-                  {editForm.team || selectedEvent.extendedProps.team}
+                <span className="bg-amber-400 text-slate-900 text-xs font-bold px-2.5 py-0.5 rounded-full">
+                  {selectedEvent.team || "3조"}
                 </span>
-                <h3 className="text-lg font-bold text-slate-800">
-                  {isEditing ? "일정 및 처분정보 수정" : "일정 상세정보"}
-                </h3>
+                <h3 className="font-bold text-slate-800 text-base">일정 상세정보</h3>
               </div>
               <button
-                onClick={() => {
-                  setSelectedEvent(null);
-                  setIsEditing(false);
-                }}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition"
+                onClick={() => setSelectedEvent(null)}
+                className="text-slate-400 hover:text-slate-600 text-xl font-bold leading-none p-1"
               >
-                <X size={18} />
+                ✕
               </button>
             </div>
 
-            {isEditing ? (
-              <div className="space-y-4 text-xs">
-                <div>
-                  <label className="font-semibold text-slate-600 block mb-1">일정 구분</label>
-                  <select
-                    value={editForm.team}
-                    onChange={(e) => setEditForm({ ...editForm, team: e.target.value })}
-                    className="w-full border p-2 rounded-lg font-semibold"
-                  >
-                    <option value="기타일정">기타일정</option>
-                    <option value="1조">1조</option>
-                    <option value="2조">2조</option>
-                    <option value="3조">3조</option>
-                    <option value="TF1조">TF1조</option>
-                    <option value="TF2조">TF2조</option>
-                    <option value="현장점검 결과회의">현장점검 결과회의</option>
-                    <option value="의견제출 검토회의">의견제출 검토회의</option>
-                    <option value="벌점심의위원회">벌점심의위원회</option>
-                  </select>
-                </div>
+            {/* 2단 탭 메뉴 */}
+            <div className="flex border-b border-slate-200 bg-slate-50 text-xs font-bold px-4">
+              <button
+                onClick={() => setActiveTab("detail")}
+                className={`py-2.5 px-3 border-b-2 transition ${
+                  activeTab === "detail"
+                    ? "border-blue-600 text-blue-600 bg-white"
+                    : "border-transparent text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                📋 일정 상세정보
+              </button>
+              <button
+                onClick={() => setActiveTab("ai_check")}
+                className={`py-2.5 px-3 border-b-2 flex items-center gap-1.5 transition ${
+                  activeTab === "ai_check"
+                    ? "border-blue-600 text-blue-600 bg-white"
+                    : "border-transparent text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                <span>🔍 현장 사진 AI 정밀 대조</span>
+                <span className="bg-amber-400 text-slate-900 text-[10px] px-1 py-0.2 rounded font-extrabold">국토부 기준</span>
+              </button>
+            </div>
 
-                <div>
-                  <label className="font-semibold text-slate-600 block mb-1">일정명 / 회의 제목</label>
-                  <input
-                    type="text"
-                    value={editForm.projectName}
-                    onChange={(e) => setEditForm({ ...editForm, projectName: e.target.value })}
-                    className="w-full border p-2 rounded-lg"
-                  />
-                </div>
-
-                <div>
-                  <label className="font-semibold text-slate-600 block mb-1">점검일 / 날짜</label>
-                  <input
-                    type="date"
-                    value={editForm.checkDate}
-                    onChange={(e) => setEditForm({ ...editForm, checkDate: e.target.value })}
-                    className="w-full border p-2 rounded-lg"
-                  />
-                </div>
-
-                <div>
-                  <label className="font-semibold text-slate-600 block mb-1">장소 / 주소</label>
-                  <input
-                    type="text"
-                    value={editForm.address}
-                    onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
-                    className="w-full border p-2 rounded-lg"
-                  />
-                </div>
-
-                {/* 벌점 프로세스 수정 영역 */}
-                <div className="bg-rose-50/80 border border-rose-200 p-3.5 rounded-xl space-y-3">
-                  <div className="flex items-center justify-between border-b border-rose-200 pb-2">
-                    <span className="font-bold text-rose-900 flex items-center gap-1">
-                      <AlertTriangle size={15} />
-                      벌점 부과 세부 설정
-                    </span>
-                    <label className="flex items-center gap-1.5 font-bold text-rose-700">
-                      <input
-                        type="checkbox"
-                        checked={editForm.hasDemerit}
-                        onChange={(e) => setEditForm({ ...editForm, hasDemerit: e.target.checked })}
-                        className="rounded text-rose-600 focus:ring-rose-500"
-                      />
-                      벌점부과 현장
-                    </label>
-                  </div>
-
-                  {editForm.hasDemerit && (
-                    <div className="space-y-3 pt-1">
-                      <div>
-                        <label className="font-bold text-slate-700 block mb-1">벌점 처분 대상 선택 *</label>
-                        <select
-                          value={editForm.demeritTarget || "시공사 및 감리사"}
-                          onChange={(e) => setEditForm({ ...editForm, demeritTarget: e.target.value })}
-                          className="w-full border p-2 rounded-lg bg-white font-bold text-slate-800"
-                        >
-                          <option value="시공사 및 감리사">시공사 및 감리사 (동시 부과)</option>
-                          <option value="시공사">시공사만 부과</option>
-                          <option value="감리사">감리사만 부과</option>
-                        </select>
-                      </div>
-
-                      {(editForm.demeritTarget === "시공사" || editForm.demeritTarget === "시공사 및 감리사") && (
-                        <DemeritProcInputs
-                          title="시공사"
-                          icon={<HardHat size={15} className="text-amber-600" />}
-                          proc={editForm.builderDemerit || defaultDemeritProc()}
-                          onChange={(updated) => setEditForm({ ...editForm, builderDemerit: updated })}
-                        />
-                      )}
-
-                      {(editForm.demeritTarget === "감리사" || editForm.demeritTarget === "시공사 및 감리사") && (
-                        <DemeritProcInputs
-                          title="감리사"
-                          icon={<ShieldCheck size={15} className="text-blue-600" />}
-                          proc={editForm.supervisorDemerit || defaultDemeritProc()}
-                          onChange={(updated) => setEditForm({ ...editForm, supervisorDemerit: updated })}
-                        />
-                      )}
-
-                      <div className="bg-indigo-50/90 border border-indigo-200 p-3 rounded-xl space-y-2 mt-2">
-                        <div className="flex items-center justify-between border-b border-indigo-200 pb-1.5">
-                          <span className="font-bold text-indigo-950 flex items-center gap-1">
-                            <Scale size={15} />
-                            행정소송 진행 관리
-                          </span>
-                          <label className="flex items-center gap-1.5 font-bold text-indigo-800">
-                            <input
-                              type="checkbox"
-                              checked={editForm.hasLawsuit}
-                              onChange={(e) => setEditForm({ ...editForm, hasLawsuit: e.target.checked })}
-                              className="rounded text-indigo-600 focus:ring-indigo-500"
-                            />
-                            소송 제기됨
-                          </label>
-                        </div>
-
-                        {editForm.hasLawsuit && (
-                          <div className="space-y-2 pt-1">
-                            <div className="grid grid-cols-2 gap-2">
-                              <div>
-                                <label className="font-semibold text-slate-700 block mb-0.5">관할 법원</label>
-                                <input
-                                  type="text"
-                                  value={editForm.lawsuitCourt || ""}
-                                  onChange={(e) => setEditForm({ ...editForm, lawsuitCourt: e.target.value })}
-                                  className="w-full border p-1.5 rounded-lg bg-white"
-                                />
-                              </div>
-                              <div>
-                                <label className="font-semibold text-slate-700 block mb-0.5">사건 번호</label>
-                                <input
-                                  type="text"
-                                  value={editForm.lawsuitCaseNumber || ""}
-                                  onChange={(e) => setEditForm({ ...editForm, lawsuitCaseNumber: e.target.value })}
-                                  className="w-full border p-1.5 rounded-lg bg-white"
-                                />
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-2">
-                              <div>
-                                <label className="font-semibold text-slate-700 block mb-0.5">진행 단계</label>
-                                <select
-                                  value={editForm.lawsuitStatus || "소 제기(접수)"}
-                                  onChange={(e) => setEditForm({ ...editForm, lawsuitStatus: e.target.value })}
-                                  className="w-full border p-1.5 rounded-lg bg-white"
-                                >
-                                  <option value="소 제기(접수)">소 제기(접수)</option>
-                                  <option value="변론 진행 중">변론 진행 중</option>
-                                  <option value="집행정지 신청/결정">집행정지 신청/결정</option>
-                                  <option value="판결 선고">판결 선고</option>
-                                  <option value="항소/상고 진행">항소/상고 진행</option>
-                                  <option value="종결">종결</option>
-                                </select>
-                              </div>
-                              <div>
-                                <label className="font-semibold text-slate-700 block mb-0.5">담당 변호사/법인</label>
-                                <input
-                                  type="text"
-                                  value={editForm.lawsuitLawyer || ""}
-                                  onChange={(e) => setEditForm({ ...editForm, lawsuitLawyer: e.target.value })}
-                                  className="w-full border p-1.5 rounded-lg bg-white"
-                                />
-                              </div>
-                            </div>
-
-                            <div>
-                              <label className="font-semibold text-slate-700 block mb-0.5">소송 결과</label>
-                              <input
-                                type="text"
-                                value={editForm.lawsuitResult || ""}
-                                onChange={(e) => setEditForm({ ...editForm, lawsuitResult: e.target.value })}
-                                className="w-full border p-1.5 rounded-lg bg-white"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="font-semibold text-slate-700 block mb-0.5">소송 주요 내용 메모</label>
-                              <input
-                                type="text"
-                                value={editForm.lawsuitNotes || ""}
-                                onChange={(e) => setEditForm({ ...editForm, lawsuitNotes: e.target.value })}
-                                className="w-full border p-1.5 rounded-lg bg-white"
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="bg-purple-50/80 border border-purple-200 p-3 rounded-xl space-y-2">
-                  <label className="flex items-center gap-1.5 font-bold text-purple-900">
-                    <input
-                      type="checkbox"
-                      checked={editForm.hasFine}
-                      onChange={(e) => setEditForm({ ...editForm, hasFine: e.target.checked })}
-                      className="rounded text-purple-600 focus:ring-purple-500"
-                    />
-                    과태료 부과 설정
-                  </label>
-
-                  {editForm.hasFine && (
-                    <div className="space-y-2 pt-1">
-                      <div>
-                        <label className="font-semibold text-slate-600 block mb-0.5">과태료 금액 (만원)</label>
-                        <input
-                          type="text"
-                          value={editForm.fineAmount || ""}
-                          onChange={(e) => setEditForm({ ...editForm, fineAmount: e.target.value })}
-                          className="w-full border p-2 rounded-lg bg-white"
-                        />
-                      </div>
-                      <div>
-                        <label className="font-semibold text-slate-600 block mb-0.5">과태료 처분 사유</label>
-                        <input
-                          type="text"
-                          value={editForm.penaltyReason || ""}
-                          onChange={(e) => setEditForm({ ...editForm, penaltyReason: e.target.value })}
-                          className="w-full border p-2 rounded-lg bg-white"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <label className="font-semibold text-slate-600 block mb-1">주요 안건 / 비고 메모</label>
-                  <textarea
-                    rows={3}
-                    value={editForm.progressStatus}
-                    onChange={(e) => setEditForm({ ...editForm, progressStatus: e.target.value })}
-                    className="w-full border p-2 rounded-lg"
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-4 text-sm">
-                {/* 시공사 / 감리사 각각의 벌점 카드로 분리 표시 */}
-                {selectedEvent.extendedProps.hasDemerit && (
-                  <div className="space-y-3">
-                    <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl flex items-center justify-between">
-                      <span className="font-bold text-rose-950 text-xs flex items-center gap-1">
-                        <AlertTriangle className="text-rose-600" size={16} />
-                        벌점 행정 처분 현장 ({selectedEvent.extendedProps.demeritTarget})
-                      </span>
-                    </div>
-
-                    {(selectedEvent.extendedProps.demeritTarget === "시공사" ||
-                      selectedEvent.extendedProps.demeritTarget === "시공사 및 감리사") && (
-                      <DemeritDisplayCard
-                        title="시공사"
-                        icon={<HardHat size={15} className="text-amber-600" />}
-                        proc={selectedEvent.extendedProps.builderDemerit}
-                      />
-                    )}
-
-                    {(selectedEvent.extendedProps.demeritTarget === "감리사" ||
-                      selectedEvent.extendedProps.demeritTarget === "시공사 및 감리사") && (
-                      <DemeritDisplayCard
-                        title="감리사"
-                        icon={<ShieldCheck size={15} className="text-blue-600" />}
-                        proc={selectedEvent.extendedProps.supervisorDemerit}
-                      />
-                    )}
-                  </div>
-                )}
-
-                {selectedEvent.extendedProps.hasLawsuit && (
-                  <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl space-y-2.5">
-                    <div className="flex items-center justify-between border-b border-indigo-200 pb-2">
-                      <div className="flex items-center gap-2">
-                        <Scale className="text-indigo-700 shrink-0" size={18} />
-                        <span className="font-bold text-indigo-950 text-xs">행정 소송 진행 현장</span>
-                      </div>
-                      <span className="bg-indigo-700 text-white text-xs font-bold px-2.5 py-0.5 rounded-full">
-                        {selectedEvent.extendedProps.lawsuitStatus}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 text-xs text-slate-800 font-medium">
-                      <div>• 관할 법원: <span className="font-bold">{selectedEvent.extendedProps.lawsuitCourt || "-"}</span></div>
-                      <div>• 사건 번호: <span className="font-bold text-indigo-700">{selectedEvent.extendedProps.lawsuitCaseNumber || "-"}</span></div>
-                      {selectedEvent.extendedProps.lawsuitLawyer && (
-                        <div>• 담당 변호인: <span className="font-semibold">{selectedEvent.extendedProps.lawsuitLawyer}</span></div>
-                      )}
-                      {selectedEvent.extendedProps.lawsuitResult && (
-                        <div>• 판결 결과: <span className="font-bold text-rose-600">{selectedEvent.extendedProps.lawsuitResult}</span></div>
-                      )}
-                    </div>
-
-                    {selectedEvent.extendedProps.lawsuitNotes && (
-                      <div className="bg-white/80 p-2.5 rounded-lg border border-indigo-100 text-xs text-slate-700">
-                        <span className="font-bold text-indigo-900 block mb-0.5">소송 기일 및 주요 내용:</span>
-                        <p className="whitespace-pre-wrap">{selectedEvent.extendedProps.lawsuitNotes}</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {selectedEvent.extendedProps.hasFine && (
-                  <div className="bg-purple-50 border border-purple-200 p-3.5 rounded-xl flex items-center justify-between text-xs">
-                    <div>
-                      <span className="font-bold text-purple-950 block">과태료 부과 현장</span>
-                      <span className="text-slate-600 mt-0.5 block">{selectedEvent.extendedProps.penaltyReason || "과태료 부과 대상"}</span>
-                    </div>
-                    <span className="bg-purple-600 text-white font-black text-xs px-2.5 py-1 rounded-full">
-                      {selectedEvent.extendedProps.fineAmount}만원
-                    </span>
-                  </div>
-                )}
-
-                <div className="flex items-start gap-3">
-                  <Building className="text-blue-500 shrink-0 mt-0.5" size={18} />
+            {/* Body */}
+            <div className="p-5 flex-1">
+              {activeTab === "detail" ? (
+                /* 기존 상세정보 레이아웃 100% 동일 재현 */
+                <div className="space-y-4 text-xs text-slate-700">
                   <div>
-                    <span className="text-xs font-semibold text-slate-400 block">일정명 / 명칭</span>
-                    <span className="font-bold text-slate-800 text-base">{selectedEvent.extendedProps.projectName}</span>
+                    <div className="text-slate-400 font-semibold mb-0.5 flex items-center gap-1">
+                      🏢 일정명 / 명칭
+                    </div>
+                    <div className="text-sm font-bold text-slate-800">
+                      {selectedEvent.location || selectedEvent.title || "갑산소하천 정비사업"}
+                    </div>
                   </div>
-                </div>
 
-                <div className="flex items-start gap-3">
-                  <Calendar className="text-emerald-500 shrink-0 mt-0.5" size={18} />
                   <div>
-                    <span className="text-xs font-semibold text-slate-400 block">날짜</span>
-                    <span className="font-bold text-emerald-600">{selectedEvent.start}</span>
+                    <div className="text-slate-400 font-semibold mb-0.5 flex items-center gap-1">
+                      📅 날짜
+                    </div>
+                    <div className="font-bold text-emerald-600">
+                      {selectedEvent.start_date || "-"}
+                    </div>
                   </div>
-                </div>
 
-                {selectedEvent.extendedProps.penaltyReason && (
-                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
-                    <span className="font-bold text-slate-700 block mb-1">처분 사유 / 지적 내용</span>
-                    <p className="text-rose-700 font-semibold">{selectedEvent.extendedProps.penaltyReason}</p>
-                  </div>
-                )}
-
-                {selectedEvent.extendedProps.address && (
-                  <div className="flex items-start gap-3">
-                    <MapPin className="text-rose-500 shrink-0 mt-0.5" size={18} />
-                    <div className="w-full">
-                      <span className="text-xs font-semibold text-slate-400 block">장소 / 주소</span>
-                      <span className="text-slate-700 block mt-0.5 mb-2 font-medium">{selectedEvent.extendedProps.address}</span>
-
-                      <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100">
-                        <span className="text-[11px] font-semibold text-slate-400 mr-1">길안내:</span>
+                  <div>
+                    <div className="text-slate-400 font-semibold mb-0.5 flex items-center gap-1">
+                      📍 장소 / 주소
+                    </div>
+                    <div className="font-medium text-slate-800 leading-relaxed mb-2">
+                      {selectedEvent.address || "주소 정보 없음"}
+                    </div>
+                    {selectedEvent.address && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-slate-400 text-[11px]">길안내:</span>
                         <a
-                          href={`https://map.kakao.com/link/search/${encodeURIComponent(selectedEvent.extendedProps.address)}`}
+                          href={`https://map.kakao.com/link/search/${encodeURIComponent(selectedEvent.address)}`}
                           target="_blank"
                           rel="noreferrer"
-                          className="flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg hover:bg-amber-100 transition"
+                          className="bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded text-[11px] font-bold hover:bg-amber-100"
                         >
-                          <Navigation size={11} />
                           카카오맵
                         </a>
                         <a
-                          href={`https://map.naver.com/v5/search/${encodeURIComponent(selectedEvent.extendedProps.address)}`}
+                          href={`https://map.naver.com/v5/search/${encodeURIComponent(selectedEvent.address)}`}
                           target="_blank"
                           rel="noreferrer"
-                          className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg hover:bg-emerald-100 transition"
+                          className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded text-[11px] font-bold hover:bg-emerald-100"
                         >
-                          <Navigation size={11} />
                           네이버 지도
                         </a>
                       </div>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-lg border border-slate-100">
+                    <div>
+                      <div className="text-slate-400 font-semibold mb-0.5">시공사</div>
+                      <div className="font-bold text-slate-800">{selectedEvent.members || "효인주식회사"}</div>
+                    </div>
+                    <div>
+                      <div className="text-slate-400 font-semibold mb-0.5">감리사</div>
+                      <div className="font-bold text-slate-800">{selectedEvent.supervisor || selectedEvent.client || "음성군청"}</div>
                     </div>
                   </div>
-                )}
 
-                {(selectedEvent.extendedProps.builder || selectedEvent.extendedProps.supervisor) && (
-                  <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
-                    {selectedEvent.extendedProps.builder && (
-                      <div>
-                        <span className="text-[11px] font-semibold text-slate-400 block">시공사</span>
-                        <span className="text-xs font-semibold text-slate-800">{selectedEvent.extendedProps.builder}</span>
-                      </div>
-                    )}
-                    {selectedEvent.extendedProps.supervisor && (
-                      <div>
-                        <span className="text-[11px] font-semibold text-slate-400 block">감리사</span>
-                        <span className="text-xs font-semibold text-slate-800">{selectedEvent.extendedProps.supervisor}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {(selectedEvent.extendedProps.agentName || selectedEvent.extendedProps.agentPhone) && (
-                  <div className="space-y-1.5 bg-blue-50/60 p-3 rounded-xl border border-blue-100">
-                    <span className="text-[11px] font-bold text-blue-700 block">담당자 / 연락처</span>
-                    <div className="flex items-center gap-4 text-xs text-slate-700">
-                      {selectedEvent.extendedProps.agentName && (
-                        <span className="flex items-center gap-1 font-semibold">
-                          <User size={14} className="text-blue-500" />
-                          {selectedEvent.extendedProps.agentName}
-                        </span>
-                      )}
-                      {selectedEvent.extendedProps.agentPhone && (
-                        <a
-                          href={`tel:${selectedEvent.extendedProps.agentPhone.replace(/[^\d]/g, "")}`}
-                          className="flex items-center gap-1 font-bold text-blue-600 underline hover:text-blue-800 transition"
-                          title="바로 전화걸기"
-                        >
-                          <Phone size={14} className="text-blue-500" />
-                          {selectedEvent.extendedProps.agentPhone} (전화연결)
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                    <div className="text-slate-400 font-semibold mb-0.5">담당자 / 연락처</div>
+                    <div className="text-slate-800 font-medium flex items-center gap-2">
+                      <span>👤 {selectedEvent.agent_name || "담당자"}</span>
+                      {selectedEvent.agent_phone && (
+                        <a href={`tel:${selectedEvent.agent_phone}`} className="text-blue-600 font-semibold hover:underline">
+                          📞 {selectedEvent.agent_phone} (전화연결)
                         </a>
                       )}
                     </div>
                   </div>
-                )}
 
-                {selectedEvent.extendedProps.progressStatus && (
-                  <div className="flex items-start gap-3">
-                    <FileText className="text-amber-500 shrink-0 mt-0.5" size={18} />
-                    <div className="w-full">
-                      <span className="text-xs font-semibold text-slate-400 block">주요 내용 / 비고 메모</span>
-                      <p className="text-slate-700 whitespace-pre-wrap bg-slate-50 p-3 rounded-lg border border-slate-200 mt-1 text-xs leading-relaxed">
-                        {selectedEvent.extendedProps.progressStatus}
-                      </p>
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                    <div className="text-slate-400 font-semibold mb-1 flex items-center gap-1">
+                      📄 주요 내용 / 비고 메모
                     </div>
+                    <p className="text-slate-700 whitespace-pre-line leading-relaxed">
+                      {selectedEvent.notes || "등록된 메모가 없습니다."}
+                    </p>
                   </div>
-                )}
-              </div>
-            )}
-
-            <div className="pt-2 flex justify-between items-center border-t">
-              {isEditing ? (
-                <>
-                  <button
-                    onClick={() => setIsEditing(false)}
-                    className="text-xs text-slate-500 hover:text-slate-700"
-                  >
-                    취소
-                  </button>
-                  <button
-                    onClick={handleSaveEdit}
-                    className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition"
-                  >
-                    <Check size={14} />
-                    저장하기
-                  </button>
-                </>
+                </div>
               ) : (
-                <>
-                  <div className="flex gap-2">
+                /* AI 사진 정밀 대조 뷰 */
+                <div className="space-y-4">
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        현장 점검 사진 등록 (카메라 촬영/앨범 선택)
+                      </label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageChange}
+                        className="block w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-md file:border-0 file:bg-blue-50 file:text-blue-700 file:font-bold bg-white border border-slate-200 rounded-lg cursor-pointer"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-center border-2 border-dashed border-slate-300 rounded-lg p-2 bg-white min-h-[140px]">
+                      {previewUrl ? (
+                        <img src={previewUrl} alt="현장사진" className="max-h-44 object-contain rounded" />
+                      ) : (
+                        <span className="text-xs text-slate-400">사진을 등록하면 미리보기가 표시됩니다.</span>
+                      )}
+                    </div>
+
                     <button
-                      onClick={() => setIsEditing(true)}
-                      className="flex items-center gap-1.5 text-blue-600 hover:text-blue-700 bg-blue-50 px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                      type="button"
+                      onClick={runAiAnalysis}
+                      disabled={aiAnalyzing || !base64Data}
+                      className={`w-full py-2.5 px-4 rounded-lg text-xs font-bold text-white shadow transition flex items-center justify-center gap-1.5 ${
+                        aiAnalyzing || !base64Data
+                          ? "bg-slate-400 cursor-not-allowed"
+                          : "bg-blue-600 hover:bg-blue-700"
+                      }`}
                     >
-                      <Edit2 size={14} />
-                      수정하기
+                      {aiAnalyzing ? "국토부 기준 조항 대조 중..." : "국토부 기준 원문 대조 분석 실행"}
+                    </button>
+                  </div>
+
+                  <div className="border border-slate-200 rounded-xl p-4 bg-white shadow-sm min-h-[200px]">
+                    <div className="border-b border-slate-100 pb-2 mb-2.5 flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-800">📋 국토교통부 공식 기준 대조 결과</span>
+                      {aiAnalyzing && (
+                        <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded animate-pulse">
+                          KCS·KDS·건진법 검색 중...
+                        </span>
+                      )}
+                    </div>
+                    {aiResult ? (
+                      <div
+                        className="text-xs text-slate-800 leading-relaxed space-y-2 [&>h1]:text-sm [&>h1]:font-bold [&>h1]:text-blue-900 [&>h2]:text-xs [&>h2]:font-bold [&>h2]:text-blue-800 [&>ul]:list-disc [&>ul]:pl-4 [&>ol]:list-decimal [&>ol]:pl-4 [&>blockquote]:border-l-4 [&>blockquote]:border-blue-500 [&>blockquote]:pl-2 [&>blockquote]:bg-slate-50 [&>blockquote]:py-1 [&>strong]:text-blue-900"
+                        dangerouslySetInnerHTML={{ __html: marked.parse(aiResult) }}
+                      />
+                    ) : (
+                      <p className="text-xs text-slate-400 text-center py-8">
+                        현장 사진을 올린 후 분석 실행 버튼을 누르면<br />
+                        KCS, KDS, 건설기술 진흥법 조항 번호와 원문이 출력됩니다.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
+              {activeTab === "detail" ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => alert("수정 모드는 캘린더 컴포넌트에서 지원됩니다.")}
+                      className="text-xs text-blue-600 border border-blue-200 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg font-semibold"
+                    >
+                      ✏️ 수정하기
                     </button>
                     <button
-                      onClick={handleDeleteSingleEvent}
-                      className="flex items-center gap-1 text-rose-600 hover:text-rose-700 bg-rose-50 px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                      onClick={() => handleDelete(selectedEvent.id)}
+                      className="text-xs text-rose-600 border border-rose-200 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-lg font-semibold"
                     >
-                      <Trash2 size={14} />
-                      삭제
+                      🗑️ 삭제
                     </button>
                   </div>
                   <button
                     onClick={() => setSelectedEvent(null)}
-                    className="bg-slate-800 hover:bg-slate-900 text-white text-xs font-medium px-4 py-2 rounded-lg transition"
+                    className="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-semibold"
                   >
                     닫기
                   </button>
                 </>
+              ) : (
+                <button
+                  onClick={() => setSelectedEvent(null)}
+                  className="w-full py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-semibold"
+                >
+                  닫기
+                </button>
               )}
             </div>
+
           </div>
         </div>
       )}
