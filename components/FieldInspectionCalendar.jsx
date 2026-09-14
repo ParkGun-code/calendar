@@ -353,13 +353,13 @@ export default function FieldInspectionCalendar() {
                           : "bg-blue-600 hover:bg-blue-700"
                       }`}
                     >
-                      {aiAnalyzing ? "국토교통부 기준 조항 대조 중..." : "국토교통부 기준 원문 대조 분석 실행"}
+                      {aiAnalyzing ? "설계기준 등 대조 중..." : "설계기준 등 원문 대조 분석 실행"}
                     </button>
                   </div>
 
                   <div className="border border-slate-200 rounded-xl p-4 bg-white shadow-sm min-h-[200px]">
                     <div className="border-b border-slate-100 pb-2 mb-2.5 flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-800">📋 국토교통부 공식 기준 대조 결과</span>
+                      <span className="text-xs font-bold text-slate-800">📋 설계기준 등 대조 결과</span>
                       {aiAnalyzing && (
                         <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded animate-pulse">
                           KCS·KDS·건진법 검색 중...
