@@ -89,7 +89,7 @@ export default function Page() {
     }
 
     if (!GEMINI_API_KEY) {
-      alert("NEXT_PUBLIC_GEMINI_API_KEY 환경변수가 확인되지 않습니다.");
+      alert("NEXT_PUBLIC_GEMINI_API_KEY 환경변수가 확인되지 않습니다. Vercel 설정을 확인하세요.");
       return;
     }
 
@@ -127,7 +127,7 @@ export default function Page() {
         role: "user",
         parts: [
           { text: promptText },
-          { inlineData: { mimeType, data: base64Data } }
+          { inlineData: { mimeType: mimeType, data: base64Data } }
         ]
       }],
       generationConfig: {
@@ -136,12 +136,23 @@ export default function Page() {
     };
 
     try {
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-      const response = await fetch(endpoint, {
+      // 1순위: 안정적인 공식 프로덕션 엔드포인트 (v1)
+      let endpoint = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+      let response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
+
+      // 2순위: v1beta 엔드포인트 폴백
+      if (!response.ok && response.status === 404) {
+        endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+      }
 
       if (!response.ok) {
         const errDetail = await response.text();
@@ -238,7 +249,7 @@ export default function Page() {
             {/* Body */}
             <div className="p-5 flex-1">
               {activeTab === "detail" ? (
-                /* 기존 상세정보 레이아웃 100% 동일 */
+                /* 기존 상세정보 레이아웃 */
                 <div className="space-y-4 text-xs text-slate-700">
                   <div>
                     <div className="text-slate-400 font-semibold mb-0.5 flex items-center gap-1">
