@@ -29,7 +29,7 @@ export default function FieldInspectionCalendar() {
   // AI 분석 관련 상태
   const [previewUrl, setPreviewUrl] = useState(null);
   const [base64Data, setBase64Data] = useState(null);
-  const [mimeType, setMimeType] = useState(null);
+  const [mimeType, setMimeType] = useState("image/jpeg");
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [aiResult, setAiResult] = useState("");
 
@@ -63,27 +63,55 @@ export default function FieldInspectionCalendar() {
     setActiveTab("detail");
     setPreviewUrl(null);
     setBase64Data(null);
-    setMimeType(null);
     setAiResult("");
   };
 
+  // 모바일 대용량 사진 자동 리사이징 & 압축 (503 에러 원천 방지)
   const handleImageChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setMimeType(file.type);
     const reader = new FileReader();
     reader.onload = (evt) => {
-      const res = evt.target?.result;
-      setBase64Data(res.split(",")[1]);
-      setPreviewUrl(res);
-      setAiResult("");
+      const img = new Image();
+      img.onload = () => {
+        // AI 분석에 최적인 최대 1280px 해상도로 축소
+        const MAX_SIZE = 1280;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_SIZE) {
+            height = Math.round((height * MAX_SIZE) / width);
+            width = MAX_SIZE;
+          }
+        } else {
+          if (height > MAX_SIZE) {
+            width = Math.round((width * MAX_SIZE) / height);
+            height = MAX_SIZE;
+          }
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx?.drawImage(img, 0, 0, width, height);
+
+        // 품질 0.85의 JPEG로 압축하여 수십 MB 사진을 300KB로 최적화
+        const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.85);
+        setPreviewUrl(compressedDataUrl);
+        setBase64Data(compressedDataUrl.split(",")[1]);
+        setMimeType("image/jpeg");
+        setAiResult("");
+      };
+      img.src = evt.target?.result;
     };
     reader.readAsDataURL(file);
   };
 
   const runAiAnalysis = async () => {
-    if (!base64Data || !mimeType) {
+    if (!base64Data) {
       alert("분석할 현장 점검 사진을 먼저 선택해 주세요.");
       return;
     }
@@ -135,23 +163,51 @@ export default function FieldInspectionCalendar() {
       }
     };
 
-    try {
-      // 확인된 gemini-flash-latest 정식 모델 호출
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
+    // 503(과부하) 방지를 위한 가용 모델 순차 호출 목록
+    const candidateModels = [
+      "gemini-2.5-flash",
+      "gemini-2.5-flash-lite",
+      "gemini-flash-latest",
+      "gemini-3.6-flash"
+    ];
 
-      if (!response.ok) {
-        const errDetail = await response.text();
-        throw new Error(`API 에러 (${response.status}): ${errDetail}`);
+    try {
+      let lastError = "";
+      let successText = "";
+
+      for (const model of candidateModels) {
+        try {
+          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+          const response = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            successText = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
+            if (successText) break;
+          } else {
+            const errDetail = await response.text();
+            lastError = `[${model}] ${response.status}: ${errDetail}`;
+            // 503(과부하) 또는 429(속도제한)일 경우 다음 후보 모델로 즉시 전환
+            if (response.status === 503 || response.status === 429 || response.status === 404) {
+              continue;
+            } else {
+              break;
+            }
+          }
+        } catch (e) {
+          lastError = e.message;
+        }
       }
 
-      const result = await response.json();
-      const text = result.candidates?.[0]?.content?.parts?.[0]?.text || "분석 결과를 가져올 수 없습니다.";
-      setAiResult(text);
+      if (successText) {
+        setAiResult(successText);
+      } else {
+        throw new Error(lastError || "모든 모델이 현재 응답할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+      }
     } catch (err) {
       console.error(err);
       alert(`분석 실패: ${err.message}`);
@@ -353,13 +409,13 @@ export default function FieldInspectionCalendar() {
                           : "bg-blue-600 hover:bg-blue-700"
                       }`}
                     >
-                      {aiAnalyzing ? "설계기준 등 대조 중..." : "설계기준 등 원문 대조 분석 실행"}
+                      {aiAnalyzing ? "국토교통부 기준 조항 대조 중..." : "국토교통부 기준 원문 대조 분석 실행"}
                     </button>
                   </div>
 
                   <div className="border border-slate-200 rounded-xl p-4 bg-white shadow-sm min-h-[200px]">
                     <div className="border-b border-slate-100 pb-2 mb-2.5 flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-800">📋 설계기준 등 대조 결과</span>
+                      <span className="text-xs font-bold text-slate-800">📋 국토교통부 공식 기준 대조 결과</span>
                       {aiAnalyzing && (
                         <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded animate-pulse">
                           KCS·KDS·건진법 검색 중...
