@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,8 +16,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1단계: Gemini Vision - 결함 좌표(붉은 박스) 및 KCSC 코드/키워드 추출
-    const promptText = `당신은 대한민국 국토교통부 건설안전·품질 점검관입니다.
+    // 1단계: Gemini Vision 프롬프트
+    const promptText = `당신은 경력 40년의 대한민국 국토교통부 건설안전·품질관련 베테랑 점검관입니다.
 현장 사진을 분석하여 결함 부위 좌표를 추출하고, 해당 결함에 적용할 국가건설기준센터(KCSC)의 표준시방서(KCS) 또는 설계기준(KDS) 코드를 식별하십시오.
 
 [출력 형식 - 반드시 최상단에 아래 순수 JSON 블록만 출력]
@@ -50,21 +50,49 @@ export async function POST(req: NextRequest) {
       }
     };
 
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${geminiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(geminiPayload)
-      }
-    );
+    // 503(과부하)/429(할당량)/404 방지를 위한 가용 모델 순차 호출 목록
+    const candidateModels = [
+      "gemini-2.5-flash",
+      "gemini-2.5-flash-lite",
+      "gemini-flash-latest"
+    ];
 
-    if (!geminiRes.ok) {
-      throw new Error(`Gemini 호출 실패 (${geminiRes.status}): ${await geminiRes.text()}`);
+    let rawText = "";
+    let lastErrMsg = "";
+
+    for (let i = 0; i < candidateModels.length; i++) {
+      const modelName = candidateModels[i];
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiKey}`;
+
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(geminiPayload)
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          rawText = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
+          if (rawText) break;
+        } else {
+          const errDetail = await response.text();
+          lastErrMsg = `[${modelName}] ${response.status}: ${errDetail}`;
+          // 503(서버 과부하), 429(속도제한), 404(모델 미지원) 발생 시 다음 후보 모델로 자동 우회
+          if (response.status === 503 || response.status === 429 || response.status === 404) {
+            continue;
+          } else {
+            break;
+          }
+        }
+      } catch (err: any) {
+        lastErrMsg = err.message;
+      }
     }
 
-    const geminiJson = await geminiRes.json();
-    const rawText = geminiJson.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    if (!rawText) {
+      throw new Error(lastErrMsg || "현재 모든 AI 가용 모델이 응답할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+    }
 
     // JSON 파싱
     const jsonMatch = rawText.match(/```json\s*([\s\S]*?)\s*```/);
