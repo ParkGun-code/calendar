@@ -58,13 +58,12 @@ export async function POST(req: NextRequest) {
       }
     };
 
-    // 503 과부하가 적고 안정적인 실제 구글 엔드포인트 모델 목록
+    // Google API v1beta 공식 지원 정규 모델 식별자 목록 (과부하 우회 우선순위)
     const candidateModels = [
       "gemini-1.5-flash",
-      "gemini-2.0-flash",
-      "gemini-1.5-flash-8b",
+      "gemini-1.5-flash-latest",
       "gemini-1.5-pro",
-      "gemini-flash-latest"
+      "gemini-1.5-pro-latest"
     ];
 
     let rawText = "";
@@ -89,9 +88,10 @@ export async function POST(req: NextRequest) {
           } else {
             const errDetail = await response.text();
             lastErrMsg = `[${modelName}] ${response.status}: ${errDetail}`;
-            // 503 과부하 또는 429 속도제한 발생 시 1.5초 대기 후 재시도
+            
+            // 503(과부하) 또는 429(속도제한) 발생 시 1초 대기 후 재시도
             if (response.status === 503 || response.status === 429) {
-              await delay(1500);
+              await delay(1000);
               continue;
             } else {
               break;
@@ -102,14 +102,14 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      if (rawText) break;
+      if (rawText) break; // 응답 수신 완료 시 모델 순회 종료
     }
 
     if (!rawText) {
-      throw new Error(`AI 서버 일시적 과부하 상태입니다. 잠시 후 다시 실행해 주세요. (${lastErrMsg})`);
+      throw new Error(`AI 서버 일시적 과부하 상태입니다. 5초 후 다시 실행해 주세요. (${lastErrMsg})`);
     }
 
-    // JSON 블록 파싱
+    // JSON 추출
     const jsonMatch = rawText.match(/```json\s*([\s\S]*?)\s*```/);
     if (!jsonMatch || !jsonMatch[1]) {
       throw new Error("AI 분석 데이터 구조화 실패");
