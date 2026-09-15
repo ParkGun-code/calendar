@@ -110,7 +110,7 @@ export default function FieldInspectionCalendar() {
     reader.readAsDataURL(file);
   };
 
-  // 백엔드 API (/api/analyze) 호출
+  // 카톡 캐시 완전 무력화 및 백엔드 라우트(/api/analyze) 호출
   const runAiAnalysis = async () => {
     if (!base64Data) {
       alert("분석할 현장 점검 사진을 먼저 선택해 주세요.");
@@ -122,9 +122,12 @@ export default function FieldInspectionCalendar() {
     setDetectedBoxes([]);
 
     try {
-      const response = await fetch("/api/analyze", {
+      const response = await fetch(`/api/analyze?t=${Date.now()}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-cache"
+        },
         body: JSON.stringify({
           base64Data,
           mimeType
@@ -137,12 +140,10 @@ export default function FieldInspectionCalendar() {
         throw new Error(data.error || "분석 요청에 실패했습니다.");
       }
 
-      // 붉은색 사각형 바운딩 박스 등록
       if (data.defects && Array.isArray(data.defects)) {
         setDetectedBoxes(data.defects);
       }
 
-      // KCSC 공식 기준 원문 리포트 출력
       setAiResult(data.report || "결과를 표시할 수 없습니다.");
     } catch (err) {
       console.error(err);
