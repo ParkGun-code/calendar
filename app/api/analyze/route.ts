@@ -18,8 +18,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1단계: 사진 분석 + KCSC 코드 도출 + 시방서 원문 규정 직접 추출
-    const promptText = `당신은 대한민국 국토교통부 40년 경력의 건설안전·품질·시공분야 베테랑 점검관입니다.
+    const promptText = `당신은 대한민국 국토교통부 40년 경력의 건설안전·품질·시공관련 점검관입니다.
 현장 사진을 정밀 분석하여 결함 부위 좌표를 추출하고, 해당 결함에 적용되는 국가건설기준센터(KCSC)의 표준시방서(KCS) 또는 설계기준(KDS)의 "실제 고시 조항 명칭 및 원문 내용"을 상세히 작성하십시오.
 
 [1. Bounding Box 좌표 및 메타데이터 추출]
@@ -29,21 +28,21 @@ export async function POST(req: NextRequest) {
   "defects": [
     {
       "box_2d": [ymin, xmin, ymax, xmax],
-      "label": "결함 명칭(예: 고장력볼트 체결 불량)"
+      "label": "결함 명칭(예: 비계 작업발판 설치 불량)"
     }
   ],
-  "kcsc_code": "KCS 14 31 25",
-  "issue_title": "고장력볼트 체결 및 접합 관리 상태 불량",
-  "issue_detail": "고장력볼트 조임 시 너트 회전량 기준 미달, 볼트 여유 나사산(1~3개) 부족 및 와셔 체결 불량 식별",
-  "standard_clause": "제3장 시공 3.3 볼트 조임 및 검사",
-  "standard_text": "고장력볼트의 조임은 토크관리법 또는 너트회전법에 따라 시공하여야 하며, 볼트 끝 여유 길이는 너트를 완전히 죈 후 나사산이 1~3개 나와야 한다. 볼트 조임 후 볼트 머리와 너트 아래에 와셔가 정상 체결되었는지 전량 확인하여야 한다.",
-  "action_required": "볼트 전량 토크 계측 검사 실시, 기준 미달 볼트 즉각 재체결 및 감리원 입회하 볼트마킹 확인"
+  "kcsc_code": "KCS 21 60 10",
+  "issue_title": "시스템비계 작업발판 및 안전난간 시공 불량",
+  "issue_detail": "작업발판의 단부 틈새 과다, 안전난간대 미체결 및 추락 방호 조치 미흡 식별",
+  "standard_clause": "제3장 시공 3.1.2 작업발판 및 안전난간",
+  "standard_text": "작업발판은 틈새가 30mm 이하가 되도록 설치하여야 하며, 발판 1개당 2개소 이상을 지지대에 철물 등으로 고정하여야 한다. 추락의 위험이 있는 장소에는 상부난간대, 중간난간대 및 발끝막이판을 견고히 설치하여야 한다.",
+  "action_required": "작업발판 고정 철물 전량 점검, 안전난간 즉각 재설치 및 감리원 확인 전 작업 중지"
 }
 \`\`\`
 
 [2. 엄격 작성 원칙]
 1. kcsc_code는 실제 존재하는 표준시방서(예: 가설 KCS 21 60 10, 철근콘크리트 KCS 14 20 10, 강구조 KCS 14 31 25, 흙막이 KCS 11 10 15 등)만 지정하십시오.
-2. standard_text에는 반드시 실제 국토교통부 표준시방서(KCS)에 고시된 실질적인 시공 기준·허용오차·품질관리 원문 규정 문장을 최소 3줄 이상 구체적으로 작성하십시오. 절대 빈칸이나 요약문으로 끝내지 마십시오.
+2. standard_text에는 반드시 실제 국토교통부 표준시방서(KCS)에 고시된 실질적인 시공 기준·허용오차·품질관리 원문 규정 문장을 최소 3줄 이상 구체적으로 작성하십시오.
 3. 건설기술진흥법 등 법률 조항은 제외하고 순수 기술 기준(시방서 규정)만 작성하십시오.`;
 
     const geminiPayload = {
@@ -59,9 +58,12 @@ export async function POST(req: NextRequest) {
       }
     };
 
+    // 503 과부하가 적고 안정적인 실제 구글 엔드포인트 모델 목록
     const candidateModels = [
-      "gemini-2.5-flash",
-      "gemini-2.5-flash-lite",
+      "gemini-1.5-flash",
+      "gemini-2.0-flash",
+      "gemini-1.5-flash-8b",
+      "gemini-1.5-pro",
       "gemini-flash-latest"
     ];
 
@@ -87,8 +89,9 @@ export async function POST(req: NextRequest) {
           } else {
             const errDetail = await response.text();
             lastErrMsg = `[${modelName}] ${response.status}: ${errDetail}`;
+            // 503 과부하 또는 429 속도제한 발생 시 1.5초 대기 후 재시도
             if (response.status === 503 || response.status === 429) {
-              await delay(1000);
+              await delay(1500);
               continue;
             } else {
               break;
@@ -103,7 +106,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!rawText) {
-      throw new Error("AI 응답 지연: " + lastErrMsg);
+      throw new Error(`AI 서버 일시적 과부하 상태입니다. 잠시 후 다시 실행해 주세요. (${lastErrMsg})`);
     }
 
     // JSON 블록 파싱
@@ -115,7 +118,7 @@ export async function POST(req: NextRequest) {
     const aiData = JSON.parse(jsonMatch[1]);
     const cleanCode = (aiData.kcsc_code || "KCS 14 20 10").replace(/\s+/g, "");
 
-    // 2단계: KCSC Open-API 실시간 조회 (서버 응답 병합)
+    // 2단계: KCSC Open-API 실시간 조회
     let apiText = "";
     if (kcscKey) {
       try {
@@ -141,7 +144,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // API 원문이 비어 있을 경우 AI가 인출한 고시 원문(standard_text)을 우선 배치
     const finalStandardClause = aiData.standard_clause || "공식 시방 기준";
     const finalStandardText = apiText || aiData.standard_text || "국가건설기준센터 고시 기준에 따라 해당 공종의 시공 및 품질 기준을 준수하여야 합니다.";
 
