@@ -18,7 +18,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const promptText = `당신은 대한민국 국토교통부 40년 경력의 건설안전·품질 감식관입니다.
+    const promptText = `당신은 대한민국 국토교통부 40년 경력의 건설안전·품질·시공관련 점검관입니다.
 현장 사진을 정밀 분석하여 결함 부위 좌표를 추출하고, 해당 결함에 적용되는 국가건설기준센터(KCSC)의 표준시방서(KCS) 또는 설계기준(KDS)의 "실제 고시 조항 명칭 및 원문 내용"을 상세히 작성하십시오.
 
 [1. Bounding Box 좌표 및 메타데이터 추출]
@@ -55,8 +55,7 @@ export async function POST(request: Request) {
       }]
     };
 
-    // Google API 최신 활성 정규 단일 모델 호출
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
 
     const response = await fetch(endpoint, {
       method: "POST",
@@ -66,7 +65,7 @@ export async function POST(request: Request) {
 
     if (!response.ok) {
       const errDetail = await response.text();
-      throw new Error(`[gemini-3.6-flash] ${response.status}: ${errDetail}`);
+      throw new Error(`[Gemini API] ${response.status}: ${errDetail}`);
     }
 
     const result = await response.json();
@@ -83,7 +82,11 @@ export async function POST(request: Request) {
     }
 
     const aiData = JSON.parse(jsonMatch[1]);
-    const cleanCode = (aiData.kcsc_code || "KCS 14 20 10").replace(/\s+/g, "");
+    const rawCode = aiData.kcsc_code || "KCS 14 20 10";
+    const cleanCode = rawCode.replace(/\s+/g, "");
+
+    // KCSC 국가건설기준센터 기준 열람 및 검색 다이렉트 링크 생성
+    const kcscSearchUrl = `https://www.kcsc.re.kr/Search/ListCodes?searchKeyword=${encodeURIComponent(rawCode)}`;
 
     // 2단계: KCSC Open-API 실시간 조회
     let apiText = "";
@@ -114,23 +117,25 @@ export async function POST(request: Request) {
     const finalStandardClause = aiData.standard_clause || "공식 시방 기준";
     const finalStandardText = apiText || aiData.standard_text || "국가건설기준센터 고시 기준에 따라 해당 공종의 시공 및 품질 기준을 준수하여야 합니다.";
 
-    // 3단계: 최종 리포트 서식 조합
+    // 3단계: KCSC 바로가기 외부 링크가 포함된 최종 마크다운 리포트
     const formattedReport = `### 1. 현장 사진 결함 및 시공 품질 문제점
 - **결함 명칭**: ${aiData.issue_title || "시공 불량"}
 - **현장 진단 사실**: ${aiData.issue_detail || "상세 결함 부위 식별"}
 
 ### 2. KCSC(국가건설기준센터) 공식 기준 원문 대조
-- **적용 기준 코드**: **${aiData.kcsc_code}** (${finalStandardClause})
+- **적용 기준 코드**: **[${rawCode} 바로가기 ↗](${kcscSearchUrl})** (${finalStandardClause})
 > **[국토교통부 표준시방서 고시 규정 원문]**  
-> "${finalStandardText}"
-> *(출처: 국가건설기준센터 kcsc.re.kr 고시 기준 대조 완료)*
+> "${finalStandardText}"  
+> 🔗 **[KCSC 국가건설기준센터에서 '${rawCode}' 공식 원문 전체 확인하기 ↗](${kcscSearchUrl})**
 
 ### 3. 현장 품질·안전 시정 조치 지시사항
 - ${aiData.action_required || "해당 부위 즉시 보수·보강 및 감리원 입회하 재검측 실시"}`;
 
     return NextResponse.json({
       defects: aiData.defects || [],
-      report: formattedReport
+      report: formattedReport,
+      kcsc_url: kcscSearchUrl,
+      kcsc_code: rawCode
     });
 
   } catch (err) {
