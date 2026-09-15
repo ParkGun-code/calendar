@@ -1,10 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
+export const dynamic = "force-dynamic";
 
-export async function POST(req: NextRequest) {
+export async function POST(request: Request) {
   try {
-    const { base64Data, mimeType } = await req.json();
+    const body = await request.json();
+    const { base64Data, mimeType } = body;
 
     const geminiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
     const kcscKey = process.env.KCSC_API_KEY || "YNO0QiT8U30fNop8BRLZI8tgfa2udYWY7kYeXLuMU9E";
@@ -16,7 +18,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const promptText = `당신은 대한민국 국토교통부 40년 경력의 건설안전·품질·시공관련 점검관입니다.
+    const promptText = `당신은 대한민국 국토교통부 40년 경력의 건설안전·품질 감식관입니다.
 현장 사진을 정밀 분석하여 결함 부위 좌표를 추출하고, 해당 결함에 적용되는 국가건설기준센터(KCSC)의 표준시방서(KCS) 또는 설계기준(KDS)의 "실제 고시 조항 명칭 및 원문 내용"을 상세히 작성하십시오.
 
 [1. Bounding Box 좌표 및 메타데이터 추출]
@@ -53,7 +55,7 @@ export async function POST(req: NextRequest) {
       }]
     };
 
-    // Google 공식 안내 활성 단일 모델 호출
+    // Google API 최신 활성 정규 단일 모델 호출
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`;
 
     const response = await fetch(endpoint, {
@@ -131,8 +133,9 @@ export async function POST(req: NextRequest) {
       report: formattedReport
     });
 
-  } catch (err: any) {
-    console.error("분석 에러:", err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error("분석 에러:", errorMessage);
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
