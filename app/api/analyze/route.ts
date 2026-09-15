@@ -55,7 +55,8 @@ export async function POST(request: Request) {
       }]
     };
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
+    // Google API 활성 모델 호출: gemini-3.6-flash
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiKey}`;
 
     const response = await fetch(endpoint, {
       method: "POST",
@@ -85,7 +86,7 @@ export async function POST(request: Request) {
     const rawCode = aiData.kcsc_code || "KCS 14 20 10";
     const cleanCode = rawCode.replace(/\s+/g, "");
 
-    // KCSC 국가건설기준센터 기준 열람 및 검색 다이렉트 링크 생성
+    // KCSC 국가건설기준센터 기준 검색 다이렉트 링크
     const kcscSearchUrl = `https://www.kcsc.re.kr/Search/ListCodes?searchKeyword=${encodeURIComponent(rawCode)}`;
 
     // 2단계: KCSC Open-API 실시간 조회
@@ -117,7 +118,7 @@ export async function POST(request: Request) {
     const finalStandardClause = aiData.standard_clause || "공식 시방 기준";
     const finalStandardText = apiText || aiData.standard_text || "국가건설기준센터 고시 기준에 따라 해당 공종의 시공 및 품질 기준을 준수하여야 합니다.";
 
-    // 3단계: KCSC 바로가기 외부 링크가 포함된 최종 마크다운 리포트
+    // 3단계: KCSC 기준 링크가 포함된 최종 마크다운 리포트
     const formattedReport = `### 1. 현장 사진 결함 및 시공 품질 문제점
 - **결함 명칭**: ${aiData.issue_title || "시공 불량"}
 - **현장 진단 사실**: ${aiData.issue_detail || "상세 결함 부위 식별"}
@@ -126,7 +127,7 @@ export async function POST(request: Request) {
 - **적용 기준 코드**: **[${rawCode} 바로가기 ↗](${kcscSearchUrl})** (${finalStandardClause})
 > **[국토교통부 표준시방서 고시 규정 원문]**  
 > "${finalStandardText}"  
-> 🔗 **[KCSC 국가건설기준센터에서 '${rawCode}' 공식 원문 전체 확인하기 ↗](${kcscSearchUrl})**
+> 🔗 **[KCSC 국가건설기준센터에서 '${rawCode}' 공식 원문 확인하기 ↗](${kcscSearchUrl})**
 
 ### 3. 현장 품질·안전 시정 조치 지시사항
 - ${aiData.action_required || "해당 부위 즉시 보수·보강 및 감리원 입회하 재검측 실시"}`;
