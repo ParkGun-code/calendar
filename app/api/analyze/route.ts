@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
 [2. 엄격 작성 원칙]
 1. kcsc_code는 실제 존재하는 표준시방서(예: 가설 KCS 21 60 10, 철근콘크리트 KCS 14 20 10, 강구조 KCS 14 31 25, 흙막이 KCS 11 10 15 등)만 지정하십시오.
 2. standard_text에는 반드시 실제 국토교통부 표준시방서(KCS)에 고시된 실질적인 시공 기준·허용오차·품질관리 원문 규정 문장을 최소 3줄 이상 구체적으로 작성하십시오.
-3. 건설기술진흥법 등 법률 조항은 제외하고 순수 기술 기준(시방서 규정)만 작성하십시오.`;
+3. 건설기술진흥법 등 타 법률 조항은 제외하고 순수 기술 기준(시방서 규정)만 작성하십시오.`;
 
     const geminiPayload = {
       contents: [{
@@ -58,20 +58,20 @@ export async function POST(req: NextRequest) {
       }
     };
 
-    // Google API v1beta 공식 지원 정규 모델 식별자 목록 (과부하 우회 우선순위)
-    const candidateModels = [
-      "gemini-1.5-flash",
-      "gemini-1.5-flash-latest",
-      "gemini-1.5-pro",
-      "gemini-1.5-pro-latest"
+    // Google API 공식 지원 정규 모델 및 엔드포인트 목록
+    const modelCandidates = [
+      { ver: "v1", name: "gemini-1.5-flash" },
+      { ver: "v1beta", name: "gemini-1.5-flash" },
+      { ver: "v1", name: "gemini-1.5-pro" },
+      { ver: "v1beta", name: "gemini-1.5-pro" }
     ];
 
     let rawText = "";
     let lastErrMsg = "";
 
-    for (let i = 0; i < candidateModels.length; i++) {
-      const modelName = candidateModels[i];
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiKey}`;
+    for (let i = 0; i < modelCandidates.length; i++) {
+      const { ver, name } = modelCandidates[i];
+      const endpoint = `https://generativelanguage.googleapis.com/${ver}/models/${name}:generateContent?key=${geminiKey}`;
 
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
@@ -87,29 +87,30 @@ export async function POST(req: NextRequest) {
             if (rawText) break;
           } else {
             const errDetail = await response.text();
-            lastErrMsg = `[${modelName}] ${response.status}: ${errDetail}`;
-            
-            // 503(과부하) 또는 429(속도제한) 발생 시 1초 대기 후 재시도
+            lastErrMsg = `[${name} (${ver})] ${response.status}: ${errDetail}`;
+
+            // 과부하(503) 또는 일시 지연(429) 시 1.2초 대기 후 1회 재시도
             if (response.status === 503 || response.status === 429) {
-              await delay(1000);
+              await delay(1200);
               continue;
-            } else {
-              break;
             }
+            // 404 등 모델 경로 불일치 시 재시도 없이 즉시 다음 모델로 건너뜀
+            break;
           }
         } catch (err: any) {
           lastErrMsg = err.message;
         }
       }
 
-      if (rawText) break; // 응답 수신 완료 시 모델 순회 종료
+      // 하나라도 정상 응답을 받았으면 루프 즉시 탈출
+      if (rawText) break;
     }
 
     if (!rawText) {
-      throw new Error(`AI 서버 일시적 과부하 상태입니다. 5초 후 다시 실행해 주세요. (${lastErrMsg})`);
+      throw new Error(`AI 서버 연결 실패: ${lastErrMsg}`);
     }
 
-    // JSON 추출
+    // JSON 블록 파싱
     const jsonMatch = rawText.match(/```json\s*([\s\S]*?)\s*```/);
     if (!jsonMatch || !jsonMatch[1]) {
       throw new Error("AI 분석 데이터 구조화 실패");
