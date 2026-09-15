@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const maxDuration = 60;
 
-const delay = (ms: number) => new Promise((res) => setTimeout(res, ms));
-
 export async function POST(req: NextRequest) {
   try {
     const { base64Data, mimeType } = await req.json();
@@ -18,6 +16,38 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 1단계: Google API에서 현재 API 키로 실제 사용 가능한 모델을 직접 조회
+    let activeModelPath = "";
+    try {
+      const listRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${geminiKey}`
+      );
+      if (listRes.ok) {
+        const listData = await listRes.json();
+        const availableModels: string[] = (listData.models || [])
+          .filter((m: any) => m.supportedGenerationMethods?.includes("generateContent"))
+          .map((m: any) => m.name); // 예: "models/gemini-2.5-flash", "models/gemini-2.0-flash" 등
+
+        // Flash 계열 최우선 선택, 없으면 첫 번째 지원 모델 선택
+        const preferred = availableModels.find((m) => m.includes("flash") && !m.includes("lite") && !m.includes("audio"))
+          || availableModels.find((m) => m.includes("flash"))
+          || availableModels.find((m) => m.includes("gemini"))
+          || availableModels[0];
+
+        if (preferred) {
+          activeModelPath = preferred; // "models/..." 형태
+        }
+      }
+    } catch (e) {
+      console.warn("모델 자동 조회 실패, 기본 경로 폴백:", e);
+    }
+
+    // 목록 조회가 안 될 경우 기본값
+    if (!activeModelPath) {
+      activeModelPath = "models/gemini-2.5-flash";
+    }
+
+    // 2단계: 프롬프트 구성
     const promptText = `당신은 대한민국 국토교통부 40년 경력의 건설안전·품질·시공관련 점검관입니다.
 현장 사진을 정밀 분석하여 결함 부위 좌표를 추출하고, 해당 결함에 적용되는 국가건설기준센터(KCSC)의 표준시방서(KCS) 또는 설계기준(KDS)의 "실제 고시 조항 명칭 및 원문 내용"을 상세히 작성하십시오.
 
@@ -58,56 +88,24 @@ export async function POST(req: NextRequest) {
       }
     };
 
-    // Google API 공식 지원 정규 모델 및 엔드포인트 목록
-    const modelCandidates = [
-      { ver: "v1", name: "gemini-1.5-flash" },
-      { ver: "v1beta", name: "gemini-1.5-flash" },
-      { ver: "v1", name: "gemini-1.5-pro" },
-      { ver: "v1beta", name: "gemini-1.5-pro" }
-    ];
+    // Google이 직접 알려준 공식 활성 모델 단 1개로 요청
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/${activeModelPath}:generateContent?key=${geminiKey}`;
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(geminiPayload)
+    });
 
-    let rawText = "";
-    let lastErrMsg = "";
-
-    for (let i = 0; i < modelCandidates.length; i++) {
-      const { ver, name } = modelCandidates[i];
-      const endpoint = `https://generativelanguage.googleapis.com/${ver}/models/${name}:generateContent?key=${geminiKey}`;
-
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          const response = await fetch(endpoint, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(geminiPayload)
-          });
-
-          if (response.ok) {
-            const result = await response.json();
-            rawText = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
-            if (rawText) break;
-          } else {
-            const errDetail = await response.text();
-            lastErrMsg = `[${name} (${ver})] ${response.status}: ${errDetail}`;
-
-            // 과부하(503) 또는 일시 지연(429) 시 1.2초 대기 후 1회 재시도
-            if (response.status === 503 || response.status === 429) {
-              await delay(1200);
-              continue;
-            }
-            // 404 등 모델 경로 불일치 시 재시도 없이 즉시 다음 모델로 건너뜀
-            break;
-          }
-        } catch (err: any) {
-          lastErrMsg = err.message;
-        }
-      }
-
-      // 하나라도 정상 응답을 받았으면 루프 즉시 탈출
-      if (rawText) break;
+    if (!response.ok) {
+      const errDetail = await response.text();
+      throw new Error(`[${activeModelPath}] ${response.status}: ${errDetail}`);
     }
 
+    const result = await response.json();
+    const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
     if (!rawText) {
-      throw new Error(`AI 서버 연결 실패: ${lastErrMsg}`);
+      throw new Error("AI 분석 결과가 비어 있습니다.");
     }
 
     // JSON 블록 파싱
@@ -119,7 +117,7 @@ export async function POST(req: NextRequest) {
     const aiData = JSON.parse(jsonMatch[1]);
     const cleanCode = (aiData.kcsc_code || "KCS 14 20 10").replace(/\s+/g, "");
 
-    // 2단계: KCSC Open-API 실시간 조회
+    // 3단계: KCSC Open-API 실시간 조회
     let apiText = "";
     if (kcscKey) {
       try {
@@ -148,7 +146,7 @@ export async function POST(req: NextRequest) {
     const finalStandardClause = aiData.standard_clause || "공식 시방 기준";
     const finalStandardText = apiText || aiData.standard_text || "국가건설기준센터 고시 기준에 따라 해당 공종의 시공 및 품질 기준을 준수하여야 합니다.";
 
-    // 3단계: 최종 리포트 서식 조합
+    // 4단계: 최종 리포트 서식 조합
     const formattedReport = `### 1. 현장 사진 결함 및 시공 품질 문제점
 - **결함 명칭**: ${aiData.issue_title || "시공 불량"}
 - **현장 진단 사실**: ${aiData.issue_detail || "상세 결함 부위 식별"}
