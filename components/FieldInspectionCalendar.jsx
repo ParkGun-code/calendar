@@ -9,7 +9,6 @@ import { marked } from "marked";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://hylizcltiyqtnclmwspo.supabase.co";
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_dD_I8Rbfc5qcOgbBRbL5qw_4yRK_EYs";
-const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -41,7 +40,7 @@ export default function FieldInspectionCalendar() {
       if (data) {
         const formatted = data.map((item) => ({
           id: String(item.id),
-          title: item.title || `[${item.team || '1조'}] ${item.location || '현장점검'}`,
+          title: item.title || `[${item.team || "1조"}] ${item.location || "현장점검"}`,
           start: item.start_date,
           backgroundColor: item.bg_color || GROUP_COLORS[item.team] || "#60A5FA",
           borderColor: "transparent",
@@ -68,6 +67,7 @@ export default function FieldInspectionCalendar() {
     setAiResult("");
   };
 
+  // 모바일 사진 자동 압축 (최대 1280px 리사이즈)
   const handleImageChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -110,14 +110,10 @@ export default function FieldInspectionCalendar() {
     reader.readAsDataURL(file);
   };
 
+  // 백엔드 API (/api/analyze) 호출
   const runAiAnalysis = async () => {
     if (!base64Data) {
       alert("분석할 현장 점검 사진을 먼저 선택해 주세요.");
-      return;
-    }
-
-    if (!GEMINI_API_KEY) {
-      alert("NEXT_PUBLIC_GEMINI_API_KEY 환경변수가 확인되지 않습니다. Vercel 환경 변수를 확인해 주세요.");
       return;
     }
 
@@ -125,125 +121,29 @@ export default function FieldInspectionCalendar() {
     setAiResult("");
     setDetectedBoxes([]);
 
-    const promptText = `당신은 대한민국 국토교통부 건설안전·품질 감식관입니다.
-첨부된 현장 점검 사진을 분석하여 결함을 감지하고, 해당 문제점의 공식 기준을 반드시 **국가건설기준센터(KCSC, kcsc.re.kr)**에서 실제 검색하여 일치하는 표준시방서(KCS) 및 설계기준(KDS) 원문을 인용하십시오.
-
-[1. 결함 위치 바운딩 박스(Bounding Box) 추출 - 필수]
-- 시공 불량, 볼트 체결 불량, 비계·난간 결함, 균열, 배근 불량 등 문제가 되는 위치의 2D Bounding Box 좌표([ymin, xmin, ymax, xmax], 0~1000 정규화 정수)를 추출하십시오.
-- 최상단에 반드시 다음 JSON 형식 블록만 출력하십시오:
-\`\`\`json
-{
-  "defects": [
-    {
-      "box_2d": [ymin, xmin, ymax, xmax],
-      "label": "결함 명칭(예: 고장력볼트 체결 불량)"
-    }
-  ]
-}
-\`\`\`
-
-[2. 기준 검색 및 인용 엄격 지침 - KCSC 원문 일치 원칙]
-1. **적용 대상 한정**:
-   - 오직 **국가건설기준센터(KCSC)에 등록된 표준시방서(KCS) 및 설계기준(KDS)**만 검색하여 인용하십시오.
-   - **건설기술진흥법, 법령, 시행령, 규칙 등 법률 조항은 일절 검색하거나 기재하지 마십시오.**
-   - 산업안전보건법 등 타 부처 규정도 일절 배제하십시오.
-2. **KCSC 실시간 검색 대조**:
-   - 사진에서 발견된 문제점 키워드로 국가건설기준센터(kcsc.re.kr)의 실제 KCS/KDS 고시 기준을 검색하십시오.
-   - 반드시 실제 존재하는 코드 번호(예: KCS 14 31 25, KCS 21 60 10 등)와 공식 조항 명칭을 명기하십시오.
-3. **가공된 번호 창작 금지 (Zero Hallucination)**:
-   - 검색되지 않거나 확실하지 않은 코드 및 조항 번호를 절대로 지어내지 마십시오.
-   - 시공 단계의 결함인 경우 표준시방서(KCS)를 우선 인용하고, 설계기준(KDS)은 해당 시에만 명시하십시오.
-
-[3. 작성 양식 (JSON 블록 바로 아래에 마크다운으로 작성)]
-### 1. 현장 사진 결함 및 시공 품질 문제점
-- 사진 속 식별된 결함 현황, 구조적 취약점 및 안전 위험 요인을 사실에 기반하여 구체적으로 기술
-
-### 2. KCSC(국가건설기준센터) 소관 공식 기준 원문 대조
-- **표준시방서(KCS)**: [공식 KCS 코드 번호 및 명칭]
-  > (KCSC에 고시된 실제 규정 원문 문장 직인용)
-- **설계기준(KDS)**: [공식 KDS 코드 번호 및 명칭 (해당 시에만 작성, 시공 결함 시 "해당 사항 없음")]
-  > (KCSC에 고시된 실제 규정 원문 문장 직인용)
-
-### 3. 현장 품질·안전 시정 조치 지시사항
-- 시공사 현장대리인 및 감리원에게 하달할 즉각적인 보수·보강·재시공 등의 기술적 조치사항`;
-
-    // Google Search Grounding 도구 적용 (실시간 kcsc 검색)
-    const payload = {
-      contents: [{
-        role: "user",
-        parts: [
-          { text: promptText },
-          { inlineData: { mimeType: mimeType, data: base64Data } }
-        ]
-      }],
-      tools: [
-        {
-          googleSearch: {}
-        }
-      ],
-      generationConfig: {
-        temperature: 0.0
-      }
-    };
-
-    const candidateModels = [
-      "gemini-flash-latest",
-      "gemini-2.5-flash",
-      "gemini-2.5-flash-lite",
-      "gemini-3.6-flash"
-    ];
-
     try {
-      let rawResponseText = "";
-      let lastErrMsg = "";
+      const response = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          base64Data,
+          mimeType
+        })
+      });
 
-      for (let i = 0; i < candidateModels.length; i++) {
-        const modelName = candidateModels[i];
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`;
+      const data = await response.json();
 
-        const response = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          rawResponseText = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
-          if (rawResponseText) {
-            break;
-          }
-        } else {
-          const errDetail = await response.text();
-          lastErrMsg = `[${modelName}] ${response.status}: ${errDetail}`;
-          if (response.status === 503 || response.status === 429 || response.status === 404) {
-            continue;
-          } else {
-            break;
-          }
-        }
+      if (!response.ok) {
+        throw new Error(data.error || "분석 요청에 실패했습니다.");
       }
 
-      if (!rawResponseText) {
-        throw new Error(lastErrMsg || "모든 모델이 현재 응답할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+      // 붉은색 사각형 바운딩 박스 등록
+      if (data.defects && Array.isArray(data.defects)) {
+        setDetectedBoxes(data.defects);
       }
 
-      const jsonMatch = rawResponseText.match(/```json\s*([\s\S]*?)\s*```/);
-      let cleanMarkdown = rawResponseText;
-
-      if (jsonMatch && jsonMatch[1]) {
-        try {
-          const parsed = JSON.parse(jsonMatch[1]);
-          if (parsed.defects && Array.isArray(parsed.defects)) {
-            setDetectedBoxes(parsed.defects);
-          }
-          cleanMarkdown = rawResponseText.replace(/```json[\s\S]*?```/, "").trim();
-        } catch (parseErr) {
-          console.warn("JSON 파싱 에러:", parseErr);
-        }
-      }
-
-      setAiResult(cleanMarkdown);
+      // KCSC 공식 기준 원문 리포트 출력
+      setAiResult(data.report || "결과를 표시할 수 없습니다.");
     } catch (err) {
       console.error(err);
       alert(`분석 실패: ${err.message}`);
@@ -322,7 +222,7 @@ export default function FieldInspectionCalendar() {
                 }`}
               >
                 <span>🔍 현장 사진 AI 정밀 대조</span>
-                <span className="bg-amber-400 text-slate-900 text-[10px] px-1 py-0.2 rounded font-extrabold">KCSC 실시간</span>
+                <span className="bg-amber-400 text-slate-900 text-[10px] px-1 py-0.2 rounded font-extrabold">KCSC 공식</span>
               </button>
             </div>
 
@@ -472,7 +372,7 @@ export default function FieldInspectionCalendar() {
                           : "bg-blue-600 hover:bg-blue-700"
                       }`}
                     >
-                      {aiAnalyzing ? "KCSC 기준 실시간 검색 및 대조 중..." : "KCSC 공식 기준 원문 대조 분석 실행"}
+                      {aiAnalyzing ? "KCSC 기준 실시간 대조 중..." : "KCSC 공식 기준 원문 대조 분석 실행"}
                     </button>
                   </div>
 
@@ -481,7 +381,7 @@ export default function FieldInspectionCalendar() {
                       <span className="text-xs font-bold text-slate-800">📋 KCSC(국가건설기준센터) 공식 기준 대조 결과</span>
                       {aiAnalyzing && (
                         <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded animate-pulse">
-                          KCSC 포털 기준 실시간 검색 중...
+                          KCSC API 기준 조회 중...
                         </span>
                       )}
                     </div>
@@ -494,7 +394,7 @@ export default function FieldInspectionCalendar() {
                       <p className="text-xs text-slate-400 text-center py-8">
                         현장 사진을 올린 후 분석 실행 버튼을 누르면<br />
                         사진 상의 <strong className="text-red-500">결함 부위에 붉은색 사각형이 표시</strong>되고,<br />
-                        KCSC(국가건설기준센터)에 고시된 실제 KCS/KDS 조항 번호와 원문이 출력됩니다.
+                        KCSC(국가건설기준센터) Open-API를 통한 공식 기준 원문이 출력됩니다.
                       </p>
                     )}
                   </div>
