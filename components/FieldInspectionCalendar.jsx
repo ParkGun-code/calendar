@@ -127,7 +127,7 @@ export default function FieldInspectionCalendar() {
     setAiResult("");
     setDetectedBoxes([]);
 
-    const promptText = `당신은 대한민국 국토교통부 건설안전·품질 점검관입니다.
+    const promptText = `당신은 경력40년의 대한민국 국토교통부 건설안전·품질관련 베테랑 점검관입니다.
 첨부된 현장 점검 사진을 분석하여 결함 및 안전 취약 부위를 감지하고 관련 공식 기준을 제시하십시오.
 
 [1. 결함 위치 바운딩 박스(Bounding Box) 추출 - 절대 필수]
@@ -149,6 +149,7 @@ export default function FieldInspectionCalendar() {
 1. 오직 대한민국 '국토교통부' 소관 법령 및 기준(KCS, KDS, 건설기술 진흥법)만 적용하십시오. (타 부처 법령 일절 언급 금지)
 2. 관련 기준은 반드시 공식 코드 번호, 장·절 번호, 조항 번호를 명기하고, 공식 원문 문장을 인용구(>) 안에 있는 그대로 제시하십시오.
 3. 실제 존재하지 않는 규정 번호를 절대 지어내지 마십시오 (Zero Hallucination).
+4. 관련 규정은 반드시 "https://www.kcsc.re.kr/"에서 교차 검증하여 작성하십시오.
 
 [3. 작성 양식 (JSON 블록 하단에 이어서 작성)]
 1. 현장 사진 결함 및 문제점 분석
