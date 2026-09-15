@@ -32,7 +32,6 @@ export default function FieldInspectionCalendar() {
   const [mimeType, setMimeType] = useState("image/jpeg");
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [aiResult, setAiResult] = useState("");
-  // 결함 위치 바운딩 박스 목록
   const [detectedBoxes, setDetectedBoxes] = useState([]);
 
   const fetchEvents = async () => {
@@ -69,7 +68,6 @@ export default function FieldInspectionCalendar() {
     setAiResult("");
   };
 
-  // 모바일 대용량 사진 자동 리사이징 & 압축 (가로/세로 최대 1280px)
   const handleImageChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -127,38 +125,49 @@ export default function FieldInspectionCalendar() {
     setAiResult("");
     setDetectedBoxes([]);
 
-    const promptText = `당신은 경력40년의 대한민국 국토교통부 건설안전·품질관련 베테랑 점검관입니다.
-첨부된 현장 점검 사진을 분석하여 결함 및 안전 취약 부위를 감지하고 관련 공식 기준을 제시하십시오.
+    const promptText = `당신은 대한민국 국토교통부 건설안전·품질 감식관입니다.
+첨부된 현장 점검 사진을 분석하여 결함을 감지하고, 해당 문제점의 공식 기준을 반드시 **국가건설기준센터(KCSC, kcsc.re.kr)**에서 실제 검색하여 일치하는 표준시방서(KCS) 및 설계기준(KDS) 원문을 인용하십시오.
 
-[1. 결함 위치 바운딩 박스(Bounding Box) 추출 - 절대 필수]
-- 사진에서 시공 불량, 균열, 볼트 누락/체결 불량, 안전난간/발판 결함, 배근 불량 등의 문제가 되는 정확한 부위를 찾아 2D Bounding Box 좌표를 추출하십시오.
-- 좌표 형식: [ymin, xmin, ymax, xmax] (0부터 1000 사이의 정수 정규화 값, [0, 0]은 좌상단, [1000, 1000]은 우하단)
-- 결과 맨 윗부분에 반드시 아래와 같은 JSON 블록 형식으로만 위치 정보를 출력하십시오:
+[1. 결함 위치 바운딩 박스(Bounding Box) 추출 - 필수]
+- 시공 불량, 볼트 체결 불량, 비계·난간 결함, 균열, 배근 불량 등 문제가 되는 위치의 2D Bounding Box 좌표([ymin, xmin, ymax, xmax], 0~1000 정규화 정수)를 추출하십시오.
+- 최상단에 반드시 다음 JSON 형식 블록만 출력하십시오:
 \`\`\`json
 {
   "defects": [
     {
       "box_2d": [ymin, xmin, ymax, xmax],
-      "label": "결함 명칭(예: 볼트 체결 불량 부위)"
+      "label": "결함 명칭(예: 고장력볼트 체결 불량)"
     }
   ]
 }
 \`\`\`
 
-[2. 절대 준수 지침 - 원문 인용 및 환각 방지]
-1. 오직 대한민국 '국토교통부' 소관 법령 및 기준(KCS, KDS, 건설기술 진흥법)만 적용하십시오. (타 부처 법령 일절 언급 금지)
-2. 관련 기준은 반드시 공식 코드 번호, 장·절 번호, 조항 번호를 명기하고, 공식 원문 문장을 인용구(>) 안에 있는 그대로 제시하십시오.
-3. 실제 존재하지 않는 규정 번호를 절대 지어내지 마십시오 (Zero Hallucination).
-4. 관련 규정은 반드시 "https://www.kcsc.re.kr/"에서 교차 검증하여 작성하십시오.
+[2. 기준 검색 및 인용 엄격 지침 - KCSC 원문 일치 원칙]
+1. **적용 대상 한정**:
+   - 오직 **국가건설기준센터(KCSC)에 등록된 표준시방서(KCS) 및 설계기준(KDS)**만 검색하여 인용하십시오.
+   - **건설기술진흥법, 법령, 시행령, 규칙 등 법률 조항은 일절 검색하거나 기재하지 마십시오.**
+   - 산업안전보건법 등 타 부처 규정도 일절 배제하십시오.
+2. **KCSC 실시간 검색 대조**:
+   - 사진에서 발견된 문제점 키워드로 국가건설기준센터(kcsc.re.kr)의 실제 KCS/KDS 고시 기준을 검색하십시오.
+   - 반드시 실제 존재하는 코드 번호(예: KCS 14 31 25, KCS 21 60 10 등)와 공식 조항 명칭을 명기하십시오.
+3. **가공된 번호 창작 금지 (Zero Hallucination)**:
+   - 검색되지 않거나 확실하지 않은 코드 및 조항 번호를 절대로 지어내지 마십시오.
+   - 시공 단계의 결함인 경우 표준시방서(KCS)를 우선 인용하고, 설계기준(KDS)은 해당 시에만 명시하십시오.
 
-[3. 작성 양식 (JSON 블록 하단에 이어서 작성)]
-1. 현장 사진 결함 및 문제점 분석
-2. 국토교통부 소관 관련 기준 및 법령 원문
-   - **표준시방서(KCS)**: 코드 번호, 조항 명칭 및 공식 규정 원문 인용
-   - **설계기준(KDS)**: 코드 번호, 조항 명칭 및 공식 규정 원문 인용
-   - **건설기술 진흥법령**: 조항 번호 및 규정 원문 인용
-3. 현장 시정 조치 지시사항`;
+[3. 작성 양식 (JSON 블록 바로 아래에 마크다운으로 작성)]
+### 1. 현장 사진 결함 및 시공 품질 문제점
+- 사진 속 식별된 결함 현황, 구조적 취약점 및 안전 위험 요인을 사실에 기반하여 구체적으로 기술
 
+### 2. KCSC(국가건설기준센터) 소관 공식 기준 원문 대조
+- **표준시방서(KCS)**: [공식 KCS 코드 번호 및 명칭]
+  > (KCSC에 고시된 실제 규정 원문 문장 직인용)
+- **설계기준(KDS)**: [공식 KDS 코드 번호 및 명칭 (해당 시에만 작성, 시공 결함 시 "해당 사항 없음")]
+  > (KCSC에 고시된 실제 규정 원문 문장 직인용)
+
+### 3. 현장 품질·안전 시정 조치 지시사항
+- 시공사 현장대리인 및 감리원에게 하달할 즉각적인 보수·보강·재시공 등의 기술적 조치사항`;
+
+    // Google Search Grounding 도구 적용 (실시간 kcsc 검색)
     const payload = {
       contents: [{
         role: "user",
@@ -167,6 +176,11 @@ export default function FieldInspectionCalendar() {
           { inlineData: { mimeType: mimeType, data: base64Data } }
         ]
       }],
+      tools: [
+        {
+          googleSearch: {}
+        }
+      ],
       generationConfig: {
         temperature: 0.0
       }
@@ -202,7 +216,6 @@ export default function FieldInspectionCalendar() {
         } else {
           const errDetail = await response.text();
           lastErrMsg = `[${modelName}] ${response.status}: ${errDetail}`;
-          // 503(과부하), 429(속도제한), 404인 경우 다음 모델 시도
           if (response.status === 503 || response.status === 429 || response.status === 404) {
             continue;
           } else {
@@ -215,7 +228,6 @@ export default function FieldInspectionCalendar() {
         throw new Error(lastErrMsg || "모든 모델이 현재 응답할 수 없습니다. 잠시 후 다시 시도해 주세요.");
       }
 
-      // JSON 바운딩 박스 파싱
       const jsonMatch = rawResponseText.match(/```json\s*([\s\S]*?)\s*```/);
       let cleanMarkdown = rawResponseText;
 
@@ -310,14 +322,13 @@ export default function FieldInspectionCalendar() {
                 }`}
               >
                 <span>🔍 현장 사진 AI 정밀 대조</span>
-                <span className="bg-amber-400 text-slate-900 text-[10px] px-1 py-0.2 rounded font-extrabold">KCS, KDS 등</span>
+                <span className="bg-amber-400 text-slate-900 text-[10px] px-1 py-0.2 rounded font-extrabold">KCSC 실시간</span>
               </button>
             </div>
 
             {/* Body */}
             <div className="p-5 flex-1">
               {activeTab === "detail" ? (
-                /* 상세정보 레이아웃 */
                 <div className="space-y-4 text-xs text-slate-700">
                   <div>
                     <div className="text-slate-400 font-semibold mb-0.5 flex items-center gap-1">
@@ -415,7 +426,6 @@ export default function FieldInspectionCalendar() {
                       />
                     </div>
 
-                    {/* 이미지 및 붉은색 사각형(바운딩 박스) 오버레이 영역 */}
                     <div className="relative flex items-center justify-center border-2 border-dashed border-slate-300 rounded-lg p-2 bg-white min-h-[160px] overflow-hidden">
                       {previewUrl ? (
                         <div className="relative inline-block max-w-full">
@@ -424,7 +434,6 @@ export default function FieldInspectionCalendar() {
                             alt="현장사진"
                             className="max-h-64 object-contain rounded block"
                           />
-                          {/* 붉은색 사각형 바운딩 박스 렌더링 */}
                           {detectedBoxes.map((defect, idx) => {
                             if (!defect.box_2d || defect.box_2d.length !== 4) return null;
                             const [ymin, xmin, ymax, xmax] = defect.box_2d;
@@ -463,16 +472,16 @@ export default function FieldInspectionCalendar() {
                           : "bg-blue-600 hover:bg-blue-700"
                       }`}
                     >
-                      {aiAnalyzing ? "결함 탐지 및 기준 조항 대조 중..." : "국토교통부 기준 원문 대조 분석 실행"}
+                      {aiAnalyzing ? "KCSC 기준 실시간 검색 및 대조 중..." : "KCSC 공식 기준 원문 대조 분석 실행"}
                     </button>
                   </div>
 
                   <div className="border border-slate-200 rounded-xl p-4 bg-white shadow-sm min-h-[200px]">
                     <div className="border-b border-slate-100 pb-2 mb-2.5 flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-800">📋 국토교통부 공식 기준 대조 결과</span>
+                      <span className="text-xs font-bold text-slate-800">📋 KCSC(국가건설기준센터) 공식 기준 대조 결과</span>
                       {aiAnalyzing && (
                         <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded animate-pulse">
-                          결함 부위 감지 및 기준 검색 중...
+                          KCSC 포털 기준 실시간 검색 중...
                         </span>
                       )}
                     </div>
@@ -485,7 +494,7 @@ export default function FieldInspectionCalendar() {
                       <p className="text-xs text-slate-400 text-center py-8">
                         현장 사진을 올린 후 분석 실행 버튼을 누르면<br />
                         사진 상의 <strong className="text-red-500">결함 부위에 붉은색 사각형이 표시</strong>되고,<br />
-                        KCS, KDS, 건설기술 진흥법 조항 번호와 원문이 출력됩니다.
+                        KCSC(국가건설기준센터)에 고시된 실제 KCS/KDS 조항 번호와 원문이 출력됩니다.
                       </p>
                     )}
                   </div>
