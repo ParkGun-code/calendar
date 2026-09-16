@@ -36,7 +36,7 @@ export async function POST(request: Request) {
 # [PE6: Ground Data Setting]
 - 입력 대상: 첨부된 현장점검 사진
 - 참조 기준: 국토교통부 국가건설기준센터(KCS, KDS), 관련 공종 표준시방서 및 설계기준
-- 원칙: 상투적인 가설비계 규정을 남발하지 말고, 사진에 나타난 실제 공종(예: 토공, 비탈면/사면, 배수로, 철근배근, 콘크리트타설 등)에 부합하는 정확한 기준을 지정할 것
+- 원칙: 상투적인 비계 기준을 무분별하게 적용하지 말고, 사진에 나타난 실제 공종(예: 비탈면/사면, 토공, 가배수로, 철근배근, 콘크리트 등)에 직결되는 정확한 기준을 지정할 것
 
 # [PE7: Format]
 반드시 다음 단일 JSON 포맷으로만 응답하십시오:
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
   "defects": [
     {
       "box_2d": [ymin, xmin, ymax, xmax],
-      "label": "결함 명칭(예: 사면 상부 추락방지 미흡 및 배수불량)"
+      "label": "결함 명칭"
     }
   ],
   "matched_codes": [
@@ -54,8 +54,8 @@ export async function POST(request: Request) {
       "name": "비탈면 보호"
     },
     {
-      "code": "KCS 11 20 00",
-      "name": "토공사"
+      "code": "KCS 11 20 25",
+      "name": "비탈면 공사"
     }
   ],
   "defect_detail": "사진에서 확인된 구체적 결함 및 시공 상태 서술",
@@ -102,24 +102,17 @@ export async function POST(request: Request) {
 
     const aiData = JSON.parse(jsonMatch[1]);
 
-    // AI가 아래쪽에서 정확하게 찾아낸 기준 코드들을 기반으로 링크 생성
+    // AI가 도출한 기준 코드들에 대한 KCSC 검색 링크 생성
     const matchedList: Array<{ code: string; name: string }> = Array.isArray(aiData.matched_codes) && aiData.matched_codes.length > 0
       ? aiData.matched_codes
       : [{ code: "KCS 11 30 00", name: "비탈면 보호" }];
 
-    // 관련 기준 링크 블록 생성
     const standardLinksMarkdown = matchedList.map((item) => {
       const searchUrl = `https://www.kcsc.re.kr/Search/ListCodes?searchKeyword=${encodeURIComponent(item.code)}`;
-      return `• **[${item.code} (${item.name}) KCSC 바로가기 ↗](${searchUrl})**`;
+      return `• **[${item.code} (${item.name}) KCSC 공식 원문 바로가기 ↗](${searchUrl})**`;
     }).join("<br/>");
 
-    // 하단 링크 목록 생성
-    const bottomLinksMarkdown = matchedList.map((item) => {
-      const searchUrl = `https://www.kcsc.re.kr/Search/ListCodes?searchKeyword=${encodeURIComponent(item.code)}`;
-      return `🔗 **[KCSC 국가건설기준센터에서 '${item.code} (${item.name})' 원문 확인 ↗](${searchUrl})**`;
-    }).join("\n\n");
-
-    // 최종 공식 [건설공사 현장점검 확인서] 테이블 구성
+    // 표 바깥의 중복·잘림 텍스트를 없애고 [현장점검 확인서] 단일 표로 완결
     const formattedReport = `## 📄 건설공사 현장점검 확인서
 
 | 구분 | 점검 내용 |
@@ -127,10 +120,7 @@ export async function POST(request: Request) {
 | **지적 사항 (현장 문제점)** | ${aiData.defect_detail || "사진에서 확인된 구체적 결함 및 시공 상태"} |
 | **관련 설계·시방 기준** | ${standardLinksMarkdown}<br/><br/>${aiData.standard_text || "공식 기준에 따라 해당 공종의 시공 및 품질 기준을 준수하여야 함."} |
 | **위험도 및 원인 분석** | ${aiData.risk_analysis || "현장 안전 및 품질 저하 위험 존재"} |
-| **시정 조치 지시사항** | ${aiData.action_required || "시공사 즉시 보수·보강 조치 실시"} |
-
----
-${bottomLinksMarkdown}`;
+| **시정 조치 지시사항** | ${aiData.action_required || "시공사 즉시 보수·보강 조치 실시"} |`;
 
     return NextResponse.json({
       defects: aiData.defects || [],
