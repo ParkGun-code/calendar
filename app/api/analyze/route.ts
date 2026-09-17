@@ -36,7 +36,7 @@ export async function POST(request: Request) {
 
 # [PE4: Procedure]
 1. 이미지 정밀 판독: 사진 내 식별 가능한 시공 결함, 규격 미달, 안전 위해 요소를 목록화하고 결함 위치의 2D 바운딩 박스 좌표([ymin, xmin, ymax, xmax], 0~1000 정규화 스케일) 추출
-2. 건설기준 매칭: 결함과 직결되는 공종의 핵심 기술 키워드(예: "동바리 수평연결재", "비탈면 가배수로", "비계 작업발판", "콘크리트 피복두께" 등) 도출
+2. 건설기준 매칭: 결함과 직결되는 공종의 핵심 기술 검색 키워드(예: "동바리", "수평연결재", "비탈면", "가배수로", "비계", "작업발판", "피복두께" 등) 도출
 3. 위험도 및 원인 분석: 해당 결함이 구조물 내구성/안전성에 미치는 영향 평가
 4. 조치 방안 수립: 시공사가 취해야 할 구체적인 보수·보강 및 재시공 지침 작성
 5. 점검 확인서 완성: 지정된 JSON 포맷으로 출력
@@ -57,8 +57,8 @@ export async function POST(request: Request) {
     }
   ],
   "search_keywords": [
-    "동바리 수평연결재",
-    "거푸집동바리 시공"
+    "동바리",
+    "수평연결재"
   ],
   "defect_detail": "사진에서 확인된 구체적 결함 및 시공 상태 서술",
   "standard_summary": "해당 공종에 요구되는 설계·시방 기준 규정 및 준수 원칙 설명",
@@ -106,12 +106,13 @@ export async function POST(request: Request) {
 
     const rawKeywords: string[] = Array.isArray(aiData.search_keywords) && aiData.search_keywords.length > 0
       ? aiData.search_keywords
-      : ["현장점검 시공기준"];
+      : ["현장점검"];
 
-    // KCSC 공식 검색 페이지로 바로 연결되는 다이렉트 링크 생성 (로그인 창 차단 완벽 우회)
+    // KCSC 공식 검색 규격(searchType=0&kcsc_cd=검색어) 완벽 매핑
     const kcscLinksMarkdown = rawKeywords.map((kw) => {
       const trimmed = kw.trim();
-      const kcscSearchUrl = `https://www.kcsc.re.kr/standardCode/search?searchKeyword=${encodeURIComponent(trimmed)}`;
+      const enc = encodeURIComponent(trimmed);
+      const kcscSearchUrl = `https://www.kcsc.re.kr/standardCode/search?searchType=0&kcsc_cd=${enc}`;
       return `• 🔍 **[KCSC 공식 기준검색: '${trimmed}' 바로가기 ↗](${kcscSearchUrl})**`;
     }).join("<br/>");
 
