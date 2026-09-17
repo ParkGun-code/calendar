@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-// 표 내부 엔터(\n)를 <br/>로 치환하고 파이프(|) 충돌을 방지하여 표 레이아웃 보존
+// 표 내부 줄바꿈 정제 (마크다운 표 레이아웃 붕괴 방지)
 function sanitizeForTable(text: string): string {
   if (!text) return "";
   return text
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
 현장점검을 수행한 발주청 감독관 및 인허가 관청 점검관입니다. 시공사 및 감리단에 공식 전달할 수 있도록 명확한 기준 조항과 증빙이 포함된 확인서가 필요합니다.
 
 # [PE3: Object]
-제공된 건설공사 현장점검 이미지에서 시공 및 안전 품질상의 문제점을 정밀 진단하고, 국가건설기준(KCS, KDS)을 검색할 수 있는 "정확한 핵심 건설 기술 검색어(2~3개)"를 도출하여 공식 [현장점검 확인서]를 작성하는 것입니다.
+제공된 건설공사 현장점검 이미지에서 시공 및 안전 품질상의 문제점을 정밀 진단하고, 국가건설기준센터(KCSC)에서 공식 기준을 바로 검색할 수 있는 "정확한 핵심 건설 기술 검색어(2~3개)"를 도출하여 공식 [현장점검 확인서]를 작성하는 것입니다.
 
 # [PE4: Procedure]
 1. 이미지 정밀 판독: 사진 내 식별 가능한 시공 결함, 규격 미달, 안전 위해 요소를 목록화하고 결함 위치의 2D 바운딩 박스 좌표([ymin, xmin, ymax, xmax], 0~1000 정규화 스케일) 추출
@@ -108,12 +108,11 @@ export async function POST(request: Request) {
       ? aiData.search_keywords
       : ["현장점검 시공기준"];
 
-    // KCSC 로그인 제한을 우회하여 공식 기준 원문으로 직행하는 검색 링크 생성
-    const standardLinksMarkdown = rawKeywords.map((kw) => {
+    // KCSC 공식 검색 페이지로 바로 연결되는 다이렉트 링크 생성 (로그인 창 차단 완벽 우회)
+    const kcscLinksMarkdown = rawKeywords.map((kw) => {
       const trimmed = kw.trim();
-      // KCSC 사이트 내 문서만 100% 필터링하여 로그인 없이 바로 열리는 링크
-      const googleSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(`site:kcsc.re.kr ${trimmed}`)}`;
-      return `• 🔍 **[KCSC 공식 기준 열람: '${trimmed}' (로그인 불필요) ↗](${googleSearchUrl})**`;
+      const kcscSearchUrl = `https://www.kcsc.re.kr/standardCode/search?searchKeyword=${encodeURIComponent(trimmed)}`;
+      return `• 🔍 **[KCSC 공식 기준검색: '${trimmed}' 바로가기 ↗](${kcscSearchUrl})**`;
     }).join("<br/>");
 
     // 표 칸별 텍스트 줄바꿈 정제 (표 깨짐 방지)
@@ -122,13 +121,13 @@ export async function POST(request: Request) {
     const safeRiskAnalysis = sanitizeForTable(aiData.risk_analysis || "안전 및 품질 저하 위험");
     const safeActionRequired = sanitizeForTable(aiData.action_required || "시공사 즉시 시정 조치 요망");
 
-    // [건설공사 현장점검 확인서] 단일 표 서식
+    // [건설공사 현장점검 확인서] 단일 표 서식 완성
     const formattedReport = `## 📄 건설공사 현장점검 확인서
 
 | 구분 | 점검 내용 |
 |---|---|
 | **지적 사항 (현장 문제점)** | ${safeDefectDetail} |
-| **관련 설계·시방 기준** | ${standardLinksMarkdown}<br/><br/>${safeStandardSummary} |
+| **관련 설계·시방 기준** | ${kcscLinksMarkdown}<br/><br/>${safeStandardSummary} |
 | **위험도 및 원인 분석** | ${safeRiskAnalysis} |
 | **시정 조치 지시사항** | ${safeActionRequired} |`;
 
