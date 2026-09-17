@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-// 표 내부 줄바꿈 정제 (마크다운 표 레이아웃 붕괴 방지)
+// 마크다운 표 깨짐 방지용 줄바꿈 및 특수문자 정제
 function sanitizeForTable(text: string): string {
   if (!text) return "";
   return text
@@ -25,29 +25,41 @@ export async function POST(request: Request) {
       );
     }
 
+    // 국토교통부 고시 KCS 표준시방서 공식 대분류 목록 주입
     const promptText = `# [PE1: Persona]
-당신은 40년 경력의 건설공사 시공, 품질 및 안전관리 특급 감리기술인(건설사업관리기술인)입니다. 현장 사진의 결함을 예리하게 식별하고, 국가건설기준(KDS, KCS) 및 관련 규정에 기반하여 객관적이고 명확한 시정요구서를 작성하는 데 전문성이 있습니다.
+당신은 40년 경력의 건설공사 시공, 품질 및 안전관리 특급 감리기술인(건설사업관리기술인)입니다. 현장 사진의 결함을 정밀 식별하고 국토교통부 국가건설기준(KCS 대분류)에 기반하여 객관적인 시정요구서를 작성합니다.
 
 # [PE2: User]
-현장점검을 수행한 발주청 감독관 및 인허가 관청 점검관입니다. 시공사 및 감리단에 공식 전달할 수 있도록 명확한 기준 조항과 증빙이 포함된 확인서가 필요합니다.
+발주청 감독관 및 인허가 관청 점검관.
 
-# [PE3: Object]
-제공된 건설공사 현장점검 이미지에서 시공 및 안전 품질상의 문제점을 정밀 진단하고, 국가건설기준센터(KCSC)에서 공식 기준을 바로 검색할 수 있는 "정확한 핵심 건설 기술 검색어(2~3개)"를 도출하여 공식 [현장점검 확인서]를 작성하는 것입니다.
+# [PE3: KCS 표준시방서 공식 대분류 기준표]
+- KCS 10 공통공사 (공사일반, 사업관리, 가설공사, 안전 및 환경관리)
+- KCS 11 지반공사 (흙공사, 옹벽, 앵커, 지반보강 및 개량공사)
+- KCS 14 콘크리트공사 (구조용 콘크리트, 프리캐스트, 특수 콘크리트)
+- KCS 17 강구조공사 (강구조물 제작 및 조립, 공장제작, 교량강구조)
+- KCS 21 가설공사 (거푸집 및 동바리, 비계, 안전시설 가설재)
+- KCS 24 교량공사 (상부 및 하부구조 공사, 교량 부속시설물 공사)
+- KCS 27 터널공사 (터널 굴착, 보강, NATM, 쉴드 TBM 터널)
+- KCS 31 설비공사 (기계설비, 보온, 도장방청, 배관설비)
+- KCS 41 건축공사 (토공사, 지정 및 기초, 조적, 방수, 지붕 및 홈통)
+- KCS 44 도로공사 (토공, 배수공, 포장공, 도로 부속시설물)
+- KCS 47 철도공사 (궤도재료, 노반공사, 궤도공사, 신호 및 통신설비)
+- KCS 51 하천공사 (제방, 호안, 보 및 수문, 하천정비 공사)
+- KCS 54 댐공사 (필댐, 콘크리트댐, 댐 부속시설물)
+- KCS 57 항만공사 (외곽시설, 계류시설, 준설 및 매립 공사)
+- KCS 61 상수도공사 (관로공사, 정수시설, 취수 및 도수설비)
+- KCS 64 하수도공사 (하수관로, 하수처리시설, 펌프장 공사)
+- KCS 71 조경공사 (조경식재, 조경시설물, 식생복원 공사)
+- KCS 81 환경시설공사 (폐기물 처리시설, 오염토양 정화시설)
 
 # [PE4: Procedure]
-1. 이미지 정밀 판독: 사진 내 식별 가능한 시공 결함, 규격 미달, 안전 위해 요소를 목록화하고 결함 위치의 2D 바운딩 박스 좌표([ymin, xmin, ymax, xmax], 0~1000 정규화 스케일) 추출
-2. 건설기준 매칭: 결함과 직결되는 공종의 핵심 기술 검색 키워드(예: "동바리", "수평연결재", "비탈면", "가배수로", "비계", "작업발판", "피복두께" 등) 도출
-3. 위험도 및 원인 분석: 해당 결함이 구조물 내구성/안전성에 미치는 영향 평가
-4. 조치 방안 수립: 시공사가 취해야 할 구체적인 보수·보강 및 재시공 지침 작성
-5. 점검 확인서 완성: 지정된 JSON 포맷으로 출력
+1. 이미지 정밀 판독: 결함 부위의 2D 바운딩 박스 좌표([ymin, xmin, ymax, xmax], 0~1000 정규화 스케일) 추출
+2. 대분류 확정: 위 KCS 대분류 목록 중 사진의 실제 공종에 해당하는 분류코드(예: KCS 11 지반공사, KCS 21 가설공사 등) 1~2개 선택
+3. 검색 키워드 도출: KCSC 공식 사이트에서 실제 검색할 핵심 단어(예: "비탈면 가배수로", "동바리 수평연결재", "작업발판" 등) 추출
+4. 위험도 분석 및 조치 지시사항 수립 후 JSON 출력
 
-# [PE6: Ground Data Setting]
-- 입력 대상: 첨부된 현장점검 사진
-- 참조 기준: 국토교통부 국가건설기준센터(KCS, KDS)
-- 원칙: 상투적인 비계 기준을 무분별하게 적용하지 말고, 사진에 나타난 실제 공종에 직결되는 정확한 검색 키워드를 제공할 것
-
-# [PE7: Format]
-반드시 다음 단일 JSON 포맷으로만 응답하십시오:
+# [PE5: Format]
+반드시 다음 JSON 형식으로만 응답하십시오:
 \`\`\`json
 {
   "defects": [
@@ -56,13 +68,14 @@ export async function POST(request: Request) {
       "label": "결함 명칭"
     }
   ],
+  "kcs_category": "KCS 11 지반공사",
   "search_keywords": [
-    "동바리",
-    "수평연결재"
+    "비탈면",
+    "산마루측구"
   ],
-  "defect_detail": "사진에서 확인된 구체적 결함 및 시공 상태 서술",
-  "standard_summary": "해당 공종에 요구되는 설계·시방 기준 규정 및 준수 원칙 설명",
-  "risk_analysis": "구조적 결함, 붕괴 위험성, 안전 사고 위험성 상세 분석",
+  "defect_detail": "사진에서 확인된 구체적 결함 및 시공 상태",
+  "standard_summary": "해당 대분류 기준에 의거한 시공 원칙 및 준수 조항 설명",
+  "risk_analysis": "구조적 결함 및 안전사고 위험도 상세 분석",
   "action_required": "1. 첫번째 시정조치\\n2. 두번째 시정조치\\n3. 세번째 시정조치"
 }
 \`\`\``;
@@ -104,11 +117,12 @@ export async function POST(request: Request) {
 
     const aiData = JSON.parse(jsonMatch[1]);
 
+    const categoryText = aiData.kcs_category || "KCS 표준시방서";
     const rawKeywords: string[] = Array.isArray(aiData.search_keywords) && aiData.search_keywords.length > 0
       ? aiData.search_keywords
       : ["현장점검"];
 
-    // KCSC 공식 검색 규격(searchType=0&kcsc_cd=검색어) 완벽 매핑
+    // KCSC 공식 검색 규격 URL 생성 (undefined 원천 차단)
     const kcscLinksMarkdown = rawKeywords.map((kw) => {
       const trimmed = kw.trim();
       const enc = encodeURIComponent(trimmed);
@@ -116,17 +130,18 @@ export async function POST(request: Request) {
       return `• 🔍 **[KCSC 공식 기준검색: '${trimmed}' 바로가기 ↗](${kcscSearchUrl})**`;
     }).join("<br/>");
 
-    // 표 칸별 텍스트 줄바꿈 정제 (표 깨짐 방지)
-    const safeDefectDetail = sanitizeForTable(aiData.defect_detail || "사진에서 확인된 결함 상태");
-    const safeStandardSummary = sanitizeForTable(aiData.standard_summary || "국가건설기준에 명시된 시공 및 품질 허용오차 기준 준수 필요");
-    const safeRiskAnalysis = sanitizeForTable(aiData.risk_analysis || "안전 및 품질 저하 위험");
+    // 표 데이터 정제
+    const safeDefectDetail = sanitizeForTable(aiData.defect_detail || "현장 사진 기반 결함 식별 완료");
+    const safeStandardSummary = sanitizeForTable(aiData.standard_summary || "국토교통부 표준시방서 기준 준수 필요");
+    const safeRiskAnalysis = sanitizeForTable(aiData.risk_analysis || "안전 및 품질 저하 위험 존재");
     const safeActionRequired = sanitizeForTable(aiData.action_required || "시공사 즉시 시정 조치 요망");
 
-    // [건설공사 현장점검 확인서] 단일 표 서식 완성
+    // 건설공사 현장점검 확인서 표 조립
     const formattedReport = `## 📄 건설공사 현장점검 확인서
 
 | 구분 | 점검 내용 |
 |---|---|
+| **적용 공종 대분류** | **${categoryText}** |
 | **지적 사항 (현장 문제점)** | ${safeDefectDetail} |
 | **관련 설계·시방 기준** | ${kcscLinksMarkdown}<br/><br/>${safeStandardSummary} |
 | **위험도 및 원인 분석** | ${safeRiskAnalysis} |
