@@ -10,7 +10,7 @@ const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishabl
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// 마크다운 표 깨짐 방지용 줄바꿈 및 특수문자 치환
+// 마크다운 표 깨짐 방지용 정제 함수
 function sanitizeForTable(text: string): string {
   if (!text) return "-";
   return text
@@ -66,9 +66,10 @@ export async function POST(request: Request) {
 }
 \`\`\``;
 
-    const visionEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    // 원래 구동되던 모델(gemini-3.6-flash)로 복구
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`;
 
-    const visionRes = await fetch(visionEndpoint, {
+    const visionRes = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -143,7 +144,6 @@ export async function POST(request: Request) {
 
     const officialCode = matchedStandard?.code_number || searchCode;
     const officialTitle = matchedStandard?.title || "표준시방서 기준";
-    // 원문이 너무 길 경우 핵심 부분 2,500자 슬라이스
     const officialContent = matchedStandard?.content
       ? matchedStandard.content.substring(0, 2500)
       : "국토교통부 건설공사 표준시방서 및 설계기준 규정을 준수하여 시공하여야 한다.";
@@ -177,7 +177,7 @@ ${officialContent}
 }
 \`\`\``;
 
-    const reportRes = await fetch(visionEndpoint, {
+    const reportRes = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
