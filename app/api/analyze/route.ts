@@ -18,39 +18,29 @@ function sanitizeForTable(text: string): string {
     .trim();
 }
 
-// 모델 호출 안정화
-async function fetchGeminiWithFallback(payload: any, apiKey: string) {
-  const candidateModels = ["gemini-3.6-flash", "gemini-2.5-flash"];
-  let lastErrorMsg = "";
+// 오직 gemini-3.6-flash 모델만 고정 호출 (일시적 503 과부하 발생 시 1.5초 후 1회 재시도)
+async function callGemini36Flash(payload: any, apiKey: string) {
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
 
-  for (const model of candidateModels) {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
 
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const res = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-
-        if (res.ok) return await res.json();
-
-        const errText = await res.text();
-        lastErrorMsg = `[${model}] ${res.status}:${errText}`;
-
-        if (res.status === 503 || res.status === 429) {
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-          continue;
-        }
-        break;
-      } catch (err: any) {
-        lastErrorMsg = err.message || String(err);
-      }
+    if (res.ok) {
+      return await res.json();
     }
-  }
 
-  throw new Error(`AI 서버 호출 실패: ${lastErrorMsg}`);
+    const errText = await res.text();
+    if ((res.status === 503 || res.status === 429) && attempt === 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      continue;
+    }
+
+    throw new Error(`[gemini-3.6-flash] ${res.status}:${errText}`);
+  }
 }
 
 export async function POST(request: Request) {
@@ -67,8 +57,7 @@ export async function POST(request: Request) {
     }
 
     // =========================================================================
-    // [Step 1] Vision AI: 사진에서 오직 '결함 위치'와 '검색용 핵심 키워드'만 추출
-    // (절대 KCS 코드 번호를 직접 지어내지 말라고 엄격 차단)
+    // [Step 1] 사진 분석: 결함 위치 및 DB 조회용 키워드 추출
     // =========================================================================
     const visionPrompt = `# [Vision 결함 진단]
 건설공사 현장 사진을 분석하여 다음 정보를 JSON으로 추출하세요:
@@ -76,7 +65,7 @@ export async function POST(request: Request) {
 2. 시방서 DB 조회를 위한 핵심 검색 키워드 2~3개 (예: "안전울타리", "가설울타리", "방호벽", "동바리", "수평연결재", "비탈면", "피복두께")
 3. 육안으로 관찰된 구체적 결함 현상 설명
 
-※ 주의: KCS 코드 번호는 데이터베이스에서 직접 매칭할 것이므로 절대 임의로 코드 번호를 지어내지 마세요.
+※ KCS 코드 번호는 DB에서 직접 매칭하므로 코드 번호는 임의로 생성하지 마세요.
 
 응답 형식:
 \`\`\`json
@@ -92,7 +81,7 @@ export async function POST(request: Request) {
 }
 \`\`\``;
 
-    const visionResult = await fetchGeminiWithFallback({
+    const visionResult = await callGemini36Flash({
       contents: [{
         role: "user",
         parts: [
@@ -123,11 +112,11 @@ export async function POST(request: Request) {
     const defectDetail = visionData.defect_detail || "현장 결함 확인";
 
     // =========================================================================
-    // [Step 2] Supabase DB 실측 검색: 1,304개 실제 KCS/KDS 목록에서 매칭
+    // [Step 2] Supabase DB 실측 검색: 1,304개 실제 적재 데이터에서 매칭
     // =========================================================================
     let matchedStandard: any = null;
 
-    // 키워드로 Supabase 실제 제목(title) 우선 검색
+    // 제목 우선 검색
     for (const kw of keywords) {
       const { data } = await supabase
         .from("construction_standards")
@@ -141,7 +130,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // 제목에 없으면 본문(content) 검색
+    // 본문 검색
     if (!matchedStandard) {
       for (const kw of keywords) {
         const { data } = await supabase
@@ -157,7 +146,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // 아무것도 매칭되지 않았을 때의 안전 기본값 (실제 존재하는 가설공사 일반시방서)
+    // 기본 매칭값
     if (!matchedStandard) {
       const { data: defaultData } = await supabase
         .from("construction_standards")
@@ -172,22 +161,21 @@ export async function POST(request: Request) {
       };
     }
 
-    // DB에서 찾은 100% 공식 코드와 제목 확정
     const realCode = matchedStandard.code_number.trim();
     const realTitle = matchedStandard.title.trim();
     
-    // 본문에서 '1. 일반사항' 또는 '3. 시공' 이후의 실제 기준 텍스트만 슬라이스
+    // 본문 머리말 건너뛰고 본문 텍스트 슬라이스
     const fullText = matchedStandard.content || "";
     const startIdx = fullText.search(/(1\.\s*일반사항|3\.\s*시공|2\.\s*재료)/i);
     const validBody = startIdx !== -1 ? fullText.substring(startIdx, startIdx + 3000) : fullText.substring(0, 3000);
 
     // =========================================================================
-    // [Step 3] AI 확인서 작성: 실제 DB 원문을 전달하고 '조항 번호와 문장' 추출 강제
+    // [Step 3] 실제 DB 원문 전달 및 조항 번호(3.X.X (X)항) 발췌 강제
     // =========================================================================
     const reportPrompt = `# [Persona]
-당신은 대한민국 국토교통부 건설안전 최고 감리기술인입니다.
-반드시 아래 제공된 **[실제 국토교통부 공식 시방서 원문]** 속에서 현장 결함과 일치하는 구체적 조항을 찾아서 보고서를 작성하세요.
-제공된 원문에 없는 번호나 내용은 절대 지어내지 마세요.
+당신은 국토교통부 건설안전 최고 감리기술인입니다.
+제공된 **[실제 국토교통부 공식 시방서 원문]** 속에서 현장 결함과 직결되는 구체적 조항을 인용하여 보고서를 작성하세요.
+제공된 원문에 없는 내용은 임의로 작성하지 마세요.
 
 [현장 결함 상세]:
 ${defectDetail}
@@ -210,7 +198,7 @@ ${validBody}
 }
 \`\`\``;
 
-    const reportResult = await fetchGeminiWithFallback({
+    const reportResult = await callGemini36Flash({
       contents: [{
         role: "user",
         parts: [{ text: reportPrompt }]
@@ -234,7 +222,7 @@ ${validBody}
     }
 
     // =========================================================================
-    // [Step 4] 100% 검증된 KCSC 공식 링크 및 마크다운 표 생성
+    // [Step 4] 공식 KCSC 링크 및 최종 점검 확인서 표 렌더링
     // =========================================================================
     const kcscUrl = `https://www.kcsc.re.kr/standardCode/search?searchType=0&kcsc_cd=${encodeURIComponent(realCode)}`;
     const standardLink = `• 🔍 **[KCSC 공식 기준검색: '${realCode}' 바로가기 ↗](${kcscUrl})**`;
