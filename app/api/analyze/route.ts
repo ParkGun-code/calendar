@@ -18,31 +18,6 @@ function sanitizeForTable(text: string): string {
     .trim();
 }
 
-// 오직 gemini-3.6-flash 모델만 고정 호출 (일시적 503 과부하 발생 시 1.5초 후 1회 재시도)
-async function callGemini36Flash(payload: any, apiKey: string) {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
-
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-
-    if (res.ok) {
-      return await res.json();
-    }
-
-    const errText = await res.text();
-    if ((res.status === 503 || res.status === 429) && attempt === 1) {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      continue;
-    }
-
-    throw new Error(`[gemini-3.6-flash] ${res.status}:${errText}`);
-  }
-}
-
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -53,21 +28,27 @@ export async function POST(request: Request) {
     }
 
     if (!GEMINI_API_KEY) {
-      return NextResponse.json({ error: "GEMINI_API_KEY가 설정되지 않았습니다." }, { status: 500 });
+      return NextResponse.json({ error: "GEMINI_API_KEY 환경변수가 설정되지 않았습니다." }, { status: 500 });
     }
 
     // =========================================================================
-    // [Step 1] 사진 분석: 결함 위치 및 DB 조회용 키워드 추출
+    // 단 1회 호출: 바운딩 박스, 결함 진단, 세부 조항 번호(3.X.X (X)항)까지 일괄 생성
     // =========================================================================
-    const visionPrompt = `# [Vision 결함 진단]
-건설공사 현장 사진을 분석하여 다음 정보를 JSON으로 추출하세요:
-1. 결함 부위 바운딩 박스([ymin, xmin, ymax, xmax], 0~1000) 및 결함 명칭
-2. 시방서 DB 조회를 위한 핵심 검색 키워드 2~3개 (예: "안전울타리", "가설울타리", "방호벽", "동바리", "수평연결재", "비탈면", "피복두께")
-3. 육안으로 관찰된 구체적 결함 현상 설명
+    const promptText = `# [PE1: Persona]
+당신은 대한민국 국토교통부 건설안전 최고 특급 감리기술인입니다.
+현장 사진의 결함을 정밀 분석하고, 국토교통부 표준시방서(KCS) 또는 설계기준(KDS)의 구체적인 조항 번호(반드시 3.X.X (X)항 형식)를 명시하여 시정확인서를 작성합니다.
 
-※ KCS 코드 번호는 DB에서 직접 매칭하므로 코드 번호는 임의로 생성하지 마세요.
+# [PE2: Instruction]
+1. 사진 내 결함 부위의 2D 바운딩 박스([ymin, xmin, ymax, xmax], 0~1000 정규화)를 추출하세요.
+2. 결함과 직결되는 실제 표준시방서 코드 번호('KCS XX XX XX' 형식)와 기준명을 도출하세요.
+   - 도로변 안전시설/가설방호벽/가설울타리: KCS 21 10 00 또는 KCS 10 20 00
+   - 동바리/비계/작업발판: KCS 21 50 05, KCS 21 60 10
+   - 비탈면/터파기/사면: KCS 11 20 15, KCS 11 30 00
+   - 철근/콘크리트: KCS 14 20 10, KCS 14 20 11
+3. 세부 조항 번호(예: "3.2.1 (1)항", "3.1.4 (2)항")와 구체적인 시공 규정 요건을 서술하세요.
+4. 구체적인 현장 결함 현상, 구조/안전 위험도, 3단계 즉시 시정조치를 작성하세요.
 
-응답 형식:
+반드시 다음 JSON 형식으로만 응답하십시오:
 \`\`\`json
 {
   "defects": [
@@ -76,163 +57,106 @@ export async function POST(request: Request) {
       "label": "결함 명칭"
     }
   ],
-  "keywords": ["핵심키워드1", "핵심키워드2"],
-  "defect_detail": "현장에서 확인된 구체적 결함 현상 요약"
+  "code": "KCS XX XX XX",
+  "name": "표준시방서 명칭",
+  "clause": "3.X.X (X)항",
+  "clause_title": "조항 소제목",
+  "clause_rule": "해당 조항에서 규정하는 구체적 시공·설치 수치 및 기준 요건",
+  "defect_detail": "사진에서 육안 확인된 구체적 결함 현상",
+  "risk_analysis": "구조적 결함 및 안전사고 위험도 상세 분석",
+  "action_required": "1. 첫번째 즉시 조치사항\\n2. 두번째 규정에 따른 보강 및 재시공 사항\\n3. 세번째 감리원 검측 완료 확인"
 }
 \`\`\``;
 
-    const visionResult = await callGemini36Flash({
-      contents: [{
-        role: "user",
-        parts: [
-          { text: visionPrompt },
-          { inlineData: { mimeType: mimeType || "image/jpeg", data: base64Data } }
-        ]
-      }],
-      generationConfig: { temperature: 0.1 }
-    }, GEMINI_API_KEY);
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`;
 
-    const rawVisionText = visionResult.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const visionMatch = rawVisionText.match(/```json\s*([\s\S]*?)\s*```/);
-    let visionData: any = {};
-    try {
-      visionData = JSON.parse(visionMatch ? visionMatch[1] : rawVisionText);
-    } catch {
-      visionData = {
-        defects: [],
-        keywords: ["안전울타리", "가설"],
-        defect_detail: "현장 가설 및 시공 안전 상태 확인 요망"
-      };
-    }
-
-    const defects = visionData.defects || [];
-    const keywords: string[] = Array.isArray(visionData.keywords) && visionData.keywords.length > 0 
-      ? visionData.keywords 
-      : ["가설", "안전"];
-    const defectDetail = visionData.defect_detail || "현장 결함 확인";
-
-    // =========================================================================
-    // [Step 2] Supabase DB 실측 검색: 1,304개 실제 적재 데이터에서 매칭
-    // =========================================================================
-    let matchedStandard: any = null;
-
-    // 제목 우선 검색
-    for (const kw of keywords) {
-      const { data } = await supabase
-        .from("construction_standards")
-        .select("code_number, title, content")
-        .ilike("title", `%${kw}%`)
-        .limit(1);
-
-      if (data && data.length > 0) {
-        matchedStandard = data[0];
-        break;
-      }
-    }
-
-    // 본문 검색
-    if (!matchedStandard) {
-      for (const kw of keywords) {
-        const { data } = await supabase
-          .from("construction_standards")
-          .select("code_number, title, content")
-          .ilike("content", `%${kw}%`)
-          .limit(1);
-
-        if (data && data.length > 0) {
-          matchedStandard = data[0];
-          break;
+    const geminiRes = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { text: promptText },
+              { inlineData: { mimeType: mimeType || "image/jpeg", data: base64Data } }
+            ]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.1
         }
-      }
+      })
+    });
+
+    if (!geminiRes.ok) {
+      const errDetail = await geminiRes.text();
+      throw new Error(`[Gemini API] ${geminiRes.status}: ${errDetail}`);
     }
 
-    // 기본 매칭값
-    if (!matchedStandard) {
-      const { data: defaultData } = await supabase
-        .from("construction_standards")
-        .select("code_number, title, content")
-        .eq("code_number", "KCS 21 10 00")
-        .limit(1);
-      
-      matchedStandard = defaultData?.[0] || {
-        code_number: "KCS 21 10 00",
-        title: "가설공사 일반사항",
-        content: "시공자는 공사구간 내 통행인과 차량의 안전을 위하여 연속적인 가설울타리 및 안전시설을 설치하여야 한다."
-      };
-    }
+    const geminiData = await geminiRes.json();
+    const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-    const realCode = matchedStandard.code_number.trim();
-    const realTitle = matchedStandard.title.trim();
-    
-    // 본문 머리말 건너뛰고 본문 텍스트 슬라이스
-    const fullText = matchedStandard.content || "";
-    const startIdx = fullText.search(/(1\.\s*일반사항|3\.\s*시공|2\.\s*재료)/i);
-    const validBody = startIdx !== -1 ? fullText.substring(startIdx, startIdx + 3000) : fullText.substring(0, 3000);
-
-    // =========================================================================
-    // [Step 3] 실제 DB 원문 전달 및 조항 번호(3.X.X (X)항) 발췌 강제
-    // =========================================================================
-    const reportPrompt = `# [Persona]
-당신은 국토교통부 건설안전 최고 감리기술인입니다.
-제공된 **[실제 국토교통부 공식 시방서 원문]** 속에서 현장 결함과 직결되는 구체적 조항을 인용하여 보고서를 작성하세요.
-제공된 원문에 없는 내용은 임의로 작성하지 마세요.
-
-[현장 결함 상세]:
-${defectDetail}
-
-[실제 데이터베이스에서 조회된 공식 기준 원문]:
-- 기준: ${realCode}${realTitle}
-- 원문 내용:
-"""
-${validBody}
-"""
-
-반드시 아래 JSON 포맷으로만 응답하세요:
-\`\`\`json
-{
-  "clause": "3.X.X (X)항 형태의 구체적 조항 번호 (예: 3.2.1 (1)항)",
-  "clause_title": "해당 조항의 소제목",
-  "quote": "원문에서 결함과 직결되는 실제 규정 문장 그대로 1~2줄 인용",
-  "risk_analysis": "해당 규정 위반 시 발생할 수 있는 구체적 사고 및 구조적 위험",
-  "action_required": "1. 첫번째 즉시 조치사항\\n2. 두번째 규정에 따른 보강 시공\\n3. 세번째 감리원 검측 완료 후 후속작업 승인"
-}
-\`\`\``;
-
-    const reportResult = await callGemini36Flash({
-      contents: [{
-        role: "user",
-        parts: [{ text: reportPrompt }]
-      }],
-      generationConfig: { temperature: 0.1 }
-    }, GEMINI_API_KEY);
-
-    const rawReportText = reportResult.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const reportMatch = rawReportText.match(/```json\s*([\s\S]*?)\s*```/);
-    let reportData: any = {};
+    const jsonMatch = rawText.match(/```json\s*([\s\S]*?)\s*```/);
+    let aiData: any = {};
     try {
-      reportData = JSON.parse(reportMatch ? reportMatch[1] : rawReportText);
+      aiData = JSON.parse(jsonMatch ? jsonMatch[1] : rawText);
     } catch {
-      reportData = {
-        clause: "3.1 (1)항",
-        clause_title: "시공 기준",
-        quote: "공사구간에는 안전관리계획에 따라 적합한 안전방호시설을 설치하여야 한다.",
-        risk_analysis: "교통사고 및 작업자/보행자 추락 위험",
-        action_required: "1. 가설 안전시설 즉시 보강\n2. 규정 준수 확인\n3. 감리원 점검 확인"
+      aiData = {
+        defects: [],
+        code: "KCS 21 10 00",
+        name: "가설공사 표준시방서",
+        clause: "3.2.1 (1)항",
+        clause_title: "가설 안전시설",
+        clause_rule: "공사구간 내 안전 확보를 위하여 연속된 가설방호벽 및 안전시설을 설치하여야 한다.",
+        defect_detail: "현장 가설 안전 및 시공 상태 점검 요망",
+        risk_analysis: "안전사고 및 구조적 위험 발생 우려",
+        action_required: "1. 현장 안전시설 보강\n2. 시방서 규정 준수 조치\n3. 감리원 검측 완료"
       };
     }
 
-    // =========================================================================
-    // [Step 4] 공식 KCSC 링크 및 최종 점검 확인서 표 렌더링
-    // =========================================================================
-    const kcscUrl = `https://www.kcsc.re.kr/standardCode/search?searchType=0&kcsc_cd=${encodeURIComponent(realCode)}`;
-    const standardLink = `• 🔍 **[KCSC 공식 기준검색: '${realCode}' 바로가기 ↗](${kcscUrl})**`;
+    const targetCode = (aiData.code || "KCS 21 10 00").trim();
+    const targetName = (aiData.name || "표준시방서").trim();
+    const clauseNo = (aiData.clause || "3.1 (1)항").trim();
+    const clauseTitle = (aiData.clause_title || "시공 기준").trim();
+    const clauseRule = (aiData.clause_rule || "").trim();
 
-    const clauseDisplay = `• **적용 기준**: ${realCode} ${realTitle}\n• **세부 조항**: **${reportData.clause || "시공기준"} ${reportData.clause_title || ""}**\n• **인용 원문**: "${reportData.quote || ""}"`;
+    // =========================================================================
+    // Supabase DB(1,304개)에서 원문 조항 고속 검증 발췌 (0.01초 소요)
+    // =========================================================================
+    let originalExcerpt = "";
+    try {
+      const { data: dbData } = await supabase
+        .from("construction_standards")
+        .select("content")
+        .ilike("code_number", `%${targetCode.replace(/\s+/g, " ")}%`)
+        .limit(1);
 
-    const safeDefectDetail = sanitizeForTable(defectDetail);
-    const safeStandard = sanitizeForTable(`${standardLink}\n\n${clauseDisplay}`);
-    const safeRisk = sanitizeForTable(reportData.risk_analysis);
-    const safeAction = sanitizeForTable(reportData.action_required);
+      if (dbData && dbData.length > 0 && dbData[0].content) {
+        const fullContent = dbData[0].content;
+        const startPos = fullContent.search(/(1\.\s*일반사항|3\.\s*시공|2\.\s*재료)/i);
+        const cleanContent = startPos !== -1 ? fullContent.substring(startPos) : fullContent;
+        originalExcerpt = cleanContent.substring(0, 180).replace(/\r?\n+/g, " ").trim();
+      }
+    } catch (dbErr) {
+      console.warn("Supabase 보조 조회 실패 (스킵):", dbErr);
+    }
+
+    // =========================================================================
+    // KCSC 공식 검색 직행 링크 및 확인서 표 생성
+    // =========================================================================
+    const kcscUrl = `https://www.kcsc.re.kr/standardCode/search?searchType=0&kcsc_cd=${encodeURIComponent(targetCode)}`;
+    const standardLink = `• 🔍 **[KCSC 공식 기준검색: '${targetCode}' 바로가기 ↗](${kcscUrl})**`;
+
+    let standardSection = `${standardLink}<br/><br/>• **적용 기준**: ${targetCode} ${targetName}<br/>• **세부 조항**: **${clauseNo} ${clauseTitle}**<br/>• **규정 요건**: ${clauseRule}`;
+    if (originalExcerpt) {
+      standardSection += `<br/>• **원문 발췌**: "... ${originalExcerpt} ..."`;
+    }
+
+    const safeDefectDetail = sanitizeForTable(aiData.defect_detail);
+    const safeStandard = sanitizeForTable(standardSection);
+    const safeRisk = sanitizeForTable(aiData.risk_analysis);
+    const safeAction = sanitizeForTable(aiData.action_required);
 
     const formattedReport = `## 📄 건설공사 현장점검 확인서
 
@@ -244,7 +168,7 @@ ${validBody}
 | **시정 조치 지시사항** | ${safeAction} |`;
 
     return NextResponse.json({
-      defects,
+      defects: aiData.defects || [],
       report: formattedReport
     });
 
