@@ -10,6 +10,7 @@ const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishabl
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// 마크다운 표 깨짐 방지용 정제 함수
 function sanitizeForTable(text: string): string {
   if (!text) return "-";
   return text
@@ -31,19 +32,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "GEMINI_API_KEY 환경변수가 설정되지 않았습니다." }, { status: 500 });
     }
 
+    // =========================================================================
+    // 단 1회 통합 호출: 결함 위치, 기준 코드, 세부 조항 번호(3.X.X (X)항), 조치사항 일괄 생성
+    // =========================================================================
     const promptText = `# [PE1: Persona]
 당신은 대한민국 국토교통부 건설안전 최고 특급 감리기술인입니다.
-현장 사진의 결함을 정밀 분석하고, 국토교통부 표준시방서(KCS) 또는 설계기준(KDS)의 구체적인 조항 번호(반드시 3.X.X (X)항 형식)를 명시하여 시정확인서를 작성합니다.
+현장 사진의 결함을 정밀 분석하고, 국토교통부 표준시방서(KCS) 또는 설계기준(KDS)의 구체적인 조항 번호(반드시 '3.X.X (X)항' 형식)를 명시하여 시정확인서를 작성합니다.
 
 # [PE2: Instruction]
-1. 결함 부위의 2D 바운딩 박스([ymin, xmin, ymax, xmax], 0~1000 정규화)를 추출하세요.
-2. 직결되는 표준시방서 코드 번호('KCS XX XX XX' 형식)와 기준명을 도출하세요.
+1. 사진 내 결함 부위의 2D 바운딩 박스([ymin, xmin, ymax, xmax], 0~1000 정규화 스케일)를 추출하세요.
+2. 결함과 직결되는 실제 표준시방서 코드 번호('KCS XX XX XX' 형식)와 정식 기준명을 도출하세요.
    - 가설방호벽/가설울타리/안전시설: KCS 21 10 00 또는 KCS 10 20 00
-   - 동바리/비계: KCS 21 50 05, KCS 21 60 10
-   - 터파기/비탈면: KCS 11 20 15, KCS 11 30 00
-   - 철근콘크리트: KCS 14 20 10, KCS 14 20 11
-3. 구체적 조항 번호(예: "3.2.1 (1)항")와 시공 규정 요건을 서술하세요.
-4. 현장 결함 설명, 위험도 분석, 3단계 즉시 시정조치를 간결하고 명확하게 작성하세요.
+   - 동바리/비계/작업발판: KCS 21 50 05, KCS 21 60 10
+   - 터파기/사면/비탈면: KCS 11 20 15, KCS 11 30 00
+   - 철근/콘크리트: KCS 14 20 10, KCS 14 20 11
+3. 구체적 조항 번호(예: "3.2.1 (1)항", "3.3.2 (2)항")와 구체적 시공 기준 요건을 명시하세요.
+4. 구체적인 현장 결함 설명, 위험도 분석, 3단계 즉시 시정조치를 간결하고 명확하게 작성하세요.
 
 반드시 다음 JSON 형식으로만 응답하십시오:
 \`\`\`json
@@ -67,7 +71,7 @@ export async function POST(request: Request) {
 
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`;
 
-    // thinkingBudget: 0 설정으로 지연 시간을 없애고 3~5초 내 즉각 응답 유도
+    // thinkingBudget: 0 설정으로 지연을 없애고 3~4초 내 즉각 응답
     const geminiRes = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -123,7 +127,9 @@ export async function POST(request: Request) {
     const clauseTitle = (aiData.clause_title || "시공 기준").trim();
     const clauseRule = (aiData.clause_rule || "").trim();
 
-    // Supabase DB(1,304개)에서 원문 조항 고속 검증 발췌 (밀리초 단위 비동기 조회)
+    // =========================================================================
+    // Supabase DB(1,304개 파일)에서 원문 조항 초고속 조회 및 발췌 (밀리초 단위)
+    // =========================================================================
     let originalExcerpt = "";
     try {
       const { data: dbData } = await supabase
@@ -142,7 +148,9 @@ export async function POST(request: Request) {
       console.warn("Supabase 보조 조회 스킵:", dbErr);
     }
 
-    // KCSC 공식 검색 직행 링크 및 확인서 표 렌더링
+    // =========================================================================
+    // KCSC 공식 검색 직행 링크 및 확인서 마크다운 표 조립
+    // =========================================================================
     const kcscUrl = `https://www.kcsc.re.kr/standardCode/search?searchType=0&kcsc_cd=${encodeURIComponent(targetCode)}`;
     const standardLink = `• 🔍 **[KCSC 공식 기준검색: '${targetCode}' 바로가기 ↗](${kcscUrl})**`;
 
