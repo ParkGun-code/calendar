@@ -27,6 +27,7 @@ export default function FieldInspectionCalendar() {
   const [activeTab, setActiveTab] = useState("ai_check");
   const [uploadingExcel, setUploadingExcel] = useState(false);
   const fileInputRef = useRef(null);
+  const calendarRef = useRef(null); // 💡 캘린더 월 이동 제어용 ref
 
   // 수정 모드 상태
   const [isEditing, setIsEditing] = useState(false);
@@ -81,7 +82,7 @@ export default function FieldInspectionCalendar() {
     return { total, teamCounts };
   }, [events]);
 
-  // 엑셀 일괄 등록
+  // 💡 엑셀 일괄 등록 (해당 월 기존 데이터 삭제 후 새 데이터 적재)
   const handleExcelUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -96,6 +97,39 @@ export default function FieldInspectionCalendar() {
         return;
       }
 
+      // 1. 이번 엑셀에 포함된 'YYYY-MM' 목록 추출 (예: ['2026-10'])
+      const targetYearMonths = Array.from(
+        new Set(
+          parsedSchedules
+            .map((s) => s.check_date && s.check_date.substring(0, 7))
+            .filter(Boolean)
+        )
+      );
+
+      const monthNames = targetYearMonths.join(", ");
+      const confirmOverwrite = confirm(
+        `[${monthNames}] 점검 일정 ${parsedSchedules.length}건이 확인되었습니다.\n해당 월의 기존 일정을 삭제하고 새로 등록하시겠습니까?`
+      );
+      if (!confirmOverwrite) return;
+
+      // 2. 해당 월(Month)의 기존 Supabase 데이터 삭제
+      for (const ym of targetYearMonths) {
+        const [year, month] = ym.split("-");
+        const startDate = `${year}-${month}-01`;
+        const endDate = `${year}-${month}-31`;
+
+        const { error: deleteError } = await supabase
+          .from("events")
+          .delete()
+          .gte("start_date", startDate)
+          .lte("start_date", endDate);
+
+        if (deleteError) {
+          console.warn(`${ym} 기존 일정 삭제 경고 (컬럼명 재확인):`, deleteError);
+        }
+      }
+
+      // 3. 신규 일정 DB 등록 데이터 생성
       const rowsToInsert = parsedSchedules.map((s) => ({
         title: `[${s.group_name || "1조"}] ${s.project_name || "현장점검"}`,
         location: s.project_name,
@@ -110,11 +144,19 @@ export default function FieldInspectionCalendar() {
         bg_color: GROUP_THEMES[s.group_name]?.bg || "#3B82F6"
       }));
 
-      const { error } = await supabase.from("events").insert(rowsToInsert);
-      if (error) throw error;
+      const { error: insertError } = await supabase.from("events").insert(rowsToInsert);
+      if (insertError) throw insertError;
 
-      alert(`총 ${rowsToInsert.length}건의 현장점검 일정이 데이터베이스에 등록되었습니다.`);
-      fetchEvents();
+      alert(`[${monthNames}] 기존 일정을 정리하고, 총 ${rowsToInsert.length}건의 일정을 성공적으로 등록했습니다.`);
+      
+      // 최신 데이터 갱신
+      await fetchEvents();
+
+      // 4. 업로드된 첫 일정 날짜로 캘린더 화면 자동 이동 (2026년 10월 등)
+      if (parsedSchedules[0]?.check_date && calendarRef.current) {
+        const calendarApi = calendarRef.current.getApi();
+        calendarApi.gotoDate(parsedSchedules[0].check_date);
+      }
     } catch (err) {
       console.error("엑셀 등록 실패:", err);
       alert(`등록 실패: ${err.message}`);
@@ -324,7 +366,9 @@ export default function FieldInspectionCalendar() {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5 mt-4 pt-4 border-t border-slate-800/80 text-xs">
           <div className="bg-slate-800/50 rounded-xl p-2.5 border border-slate-700/50 flex flex-col">
             <span className="text-[11px] text-slate-400 font-medium">전체 점검계획</span>
-            <span className="text-base font-black text-white mt-0.5">{stats.total} <span className="text-[10px] font-normal text-slate-400">개소</span></span>
+            <span className="text-base font-black text-white mt-0.5">
+              {stats.total} <span className="text-[10px] font-normal text-slate-400">개소</span>
+            </span>
           </div>
           {Object.entries(GROUP_THEMES).map(([team, theme]) => (
             <div key={team} className="bg-slate-800/50 rounded-xl p-2.5 border border-slate-700/50 flex flex-col">
@@ -343,6 +387,7 @@ export default function FieldInspectionCalendar() {
       {/* 2. 캘린더 메인 컨테이너 */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200/90 p-4 sm:p-6">
         <FullCalendar
+          ref={calendarRef}
           plugins={[dayGridPlugin, interactionPlugin]}
           initialView="dayGridMonth"
           locale="ko"
@@ -361,7 +406,6 @@ export default function FieldInspectionCalendar() {
       {selectedEvent && (
         <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[92vh] border border-slate-300 flex flex-col overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150">
-            
             {/* 상단 모달 헤더 */}
             <div className="px-5 py-3.5 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -420,7 +464,6 @@ export default function FieldInspectionCalendar() {
               {activeTab === "ai_check" ? (
                 /* AI 정밀 대조 듀얼 스플릿 뷰 */
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-                  
                   {/* 좌측: 현장 사진 업로드 및 붉은색 결함 박스 뷰어 (5컬럼) */}
                   <div className="lg:col-span-5 flex flex-col space-y-3">
                     <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
@@ -514,7 +557,7 @@ export default function FieldInspectionCalendar() {
                         </div>
                         {aiAnalyzing && (
                           <span className="text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded animate-pulse">
-                            Vision AI 40년 감리엔진 판독 중...
+                            Vision AI 감리엔진 판독 중...
                           </span>
                         )}
                       </div>
@@ -538,13 +581,12 @@ export default function FieldInspectionCalendar() {
                           </div>
                           <div className="text-xs font-bold text-slate-700">공식 점검 확인서 대기 중</div>
                           <p className="text-[11px] text-slate-400 leading-normal max-w-sm">
-                            좌측에서 현장 점검 사진을 업로드한 후 분석을 실행하면, 40년 감리기술인 엔진이 결함 박스와 KCSC 공식 시방 기준을 표 양식으로 즉시 도출합니다.
+                            좌측에서 현장 점검 사진을 업로드한 후 분석을 실행하면, 비전 AI 엔진이 결함 박스와 KCSC 공식 시방 기준을 표 양식으로 즉시 도출합니다.
                           </p>
                         </div>
                       )}
                     </div>
                   </div>
-
                 </div>
               ) : (
                 /* 일정 상세 조회 및 수정 폼 패널 */
@@ -785,7 +827,6 @@ export default function FieldInspectionCalendar() {
                 창 닫기
               </button>
             </div>
-
           </div>
         </div>
       )}
