@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     }
 
     if (!GEMINI_API_KEY) {
-      return NextResponse.json({ error: "GEMINI_API_KEY 환경변수가 설정되지 않았습니다." }, { status: 500 });
+      return NextResponse.json({ error: "GEMINI_API_KEY가 설정되지 않았습니다." }, { status: 500 });
     }
 
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`;
@@ -67,13 +67,15 @@ export async function POST(request: Request) {
   * 굴착기 후면 협착방지봉 미설치 -> KCS 21 20 10 (건설지원장비, 3.4 굴착기)
   * 임시침사지 토사 퇴적/준설 미흡 -> KCS 21 20 15 (환경관리시설, 3.3.1 침사지)
 
+★ 중요: "label"은 이미지 위에 표기되므로 절대 문장으로 길게 쓰지 마시고 15자 이내의 간결한 명칭으로만 작성하세요! (예: "안전난간 미설치 (추락 위험)", "개구부 덮개 미설치")
+
 반드시 아래 JSON 형식으로만 응답하십시오:
 \`\`\`json
 {
   "defects": [
     {
       "box_2d": [ymin, xmin, ymax, xmax],
-      "label": "실제 결함 명칭 (예: 바닥 단부 안전난간 미설치 및 임의 로프 구획)"
+      "label": "15자 이내 간결한 결함명칭"
     }
   ],
   "code": "KCS XX XX XX",
