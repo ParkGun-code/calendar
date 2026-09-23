@@ -31,28 +31,49 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "GEMINI_API_KEY 환경변수가 설정되지 않았습니다." }, { status: 500 });
     }
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    // =========================================================================
+    // 단 1회 통합 호출 (gemini-3.6-flash 고정)
+    // =========================================================================
+    const promptText = `# [PE1: Persona]
+당신은 대한민국 국토교통부 건설안전 최고 특급 감리기술인입니다.
+현장 사진의 안전 위험 및 시공 결함을 정밀 분석하고, 국토교통부 표준시방서(KCS)의 구체적인 실제 조항 번호(반드시 '3.X.X (X)항' 형식)를 정확하게 매칭하여 시정확인서를 작성합니다.
 
-    // =========================================================================
-    // 1단계: 사진 분석 (결함 바운딩 박스 + DB 검색용 핵심 공종 키워드 추출)
-    // =========================================================================
-    const visionPrompt = `당신은 건설안전 감리전문가입니다.
-사진의 위험 또는 시공상 미흡 부위를 감지하고, 국가건설기준 DB에서 검색할 핵심 단어를 추출하세요.
-반드시 아래 JSON 형식으로만 응답하세요:
+# [PE2: 공종별 공인 KCS 코드 매핑 가이드 (환각 절대 금지)]
+- 개구부 덮개 미흡 / 바닥 개구부 추락 위험 / 추락방지망: 반드시 **KCS 21 60 10 (추락재해방지시설공사 표준시방서)** 또는 **KCS 21 60 00 (비계 및 안전시설물공사)** 인용 (※ 거푸집/동바리 KCS 21 50 00 인용 금지!)
+- 시스템 비계 / 강관 비계 / 작업발판: **KCS 21 60 05 (비계공사 표준시방서)**
+- 동바리 / 거푸집 붕괴 위험 / 지주 결속 미흡: **KCS 21 50 00 (거푸집 및 동바리공사 표준시방서)**
+- 가설 통로 / 경사로 / 가설 계단: **KCS 21 60 15 (가설통로공사 표준시방서)**
+
+# [PE3: Instruction]
+1. 결함 부위의 2D 바운딩 박스([ymin, xmin, ymax, xmax], 0~1000 정규화 스케일)를 추출하세요.
+2. 위 가이드에 따라 사진 결함과 일치하는 실제 표준시방서 코드 번호('KCS XX XX XX')와 정식 기준명을 명시하세요.
+3. 해당 기준의 구체적 조항 번호(예: "3.2.3 (1)항", "3.1.2 (2)항")와 핵심 규정 요건(치수, 고정방식, 표식 등)을 서술하세요.
+4. 구체적 결함 상태, 위험도 분석, 3단계 즉시 시정조치를 작성하세요.
+
+반드시 다음 JSON 형식으로만 응답하십시오:
 \`\`\`json
 {
   "defects": [
     {
       "box_2d": [ymin, xmin, ymax, xmax],
-      "label": "위험 요소 요약 (예: 바닥 개구부 덮개 미흡)"
+      "label": "결함 명칭"
     }
   ],
-  "search_keyword": "개구부",
-  "defect_detail": "사진에서 육안 확인된 구체적 결함 현상"
+  "code": "KCS 21 XX XX",
+  "name": "표준시방서 정식 명칭",
+  "clause": "3.X.X (X)항",
+  "clause_title": "조항 소제목",
+  "clause_rule": "해당 조항의 시공·설치 수치 및 핵심 요건",
+  "defect_detail": "사진에서 육안 확인된 구체적 결함 현상",
+  "risk_analysis": "구조적 결함 및 안전사고 위험도 상세 분석",
+  "action_required": "1. 첫번째 즉시 조치사항\\n2. 두번째 규정에 따른 보강 및 재시공 사항\\n3. 세번째 감리원 검측 완료 확인"
 }
 \`\`\``;
 
-    const visionRes = await fetch(endpoint, {
+    // ★ gemini-3.6-flash 고정 (임의 변경 금지)
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+    const geminiRes = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -60,130 +81,92 @@ export async function POST(request: Request) {
           {
             role: "user",
             parts: [
-              { text: visionPrompt },
+              { text: promptText },
               { inlineData: { mimeType: mimeType || "image/jpeg", data: base64Data } }
             ]
           }
         ],
         generationConfig: {
           temperature: 0.1,
-          thinkingConfig: { thinkingBudget: 0 }
+          maxOutputTokens: 1000,
+          thinkingConfig: {
+            thinkingBudget: 0
+          }
         }
       })
     });
 
-    if (!visionRes.ok) {
-      const errText = await visionRes.text();
-      throw new Error(`비전 AI 호출 실패: ${errText}`);
+    if (!geminiRes.ok) {
+      const errDetail = await geminiRes.text();
+      throw new Error(`[Gemini API] ${geminiRes.status}: ${errDetail}`);
     }
 
-    const visionJson = await visionRes.json();
-    const visionRaw = visionJson.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const match = visionRaw.match(/```json\s*([\s\S]*?)\s*```/);
-    const parsedVision = match ? JSON.parse(match[1]) : {};
+    const geminiData = await geminiRes.json();
+    const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-    const defectLabel = parsedVision.defects?.[0]?.label || "현장 미흡 부위";
-    const keyword = parsedVision.search_keyword || "개구부";
-    const defectDetail = parsedVision.defect_detail || defectLabel;
+    const jsonMatch = rawText.match(/```json\s*([\s\S]*?)\s*```/);
+    if (!jsonMatch || !jsonMatch[1]) {
+      throw new Error("AI가 표준 규격의 JSON 응답을 생성하지 못했습니다. 다시 시도해 주세요.");
+    }
 
-    // =========================================================================
-    // 2단계: Supabase 실제 1,304개 DB에서 키워드로 진짜 시방서 원문 검색
-    // =========================================================================
-    let matchedStandard: any = null;
-    let standardExcerpt = "";
-
+    let aiData: any;
     try {
-      // 1순위: 제목(title)에 키워드가 포함된 공인 기준 검색
-      let { data: standards } = await supabase
-        .from("construction_standards")
-        .select("code_number, title, content")
-        .ilike("title", `%${keyword}%`)
-        .limit(2);
-
-      // 제목 검색 결과가 없으면 본문(content) 검색
-      if (!standards || standards.length === 0) {
-        const { data: contentStandards } = await supabase
-          .from("construction_standards")
-          .select("code_number, title, content")
-          .ilike("content", `%${keyword}%`)
-          .limit(1);
-        standards = contentStandards;
-      }
-
-      if (standards && standards.length > 0) {
-        matchedStandard = standards[0];
-        const fullTxt = matchedStandard.content || "";
-        
-        // 키워드가 위치한 본문 단락 앞뒤 1,000자 발췌
-        const kwIdx = fullTxt.indexOf(keyword);
-        if (kwIdx !== -1) {
-          const start = Math.max(0, kwIdx - 200);
-          standardExcerpt = fullTxt.substring(start, start + 1200);
-        } else {
-          standardExcerpt = fullTxt.substring(0, 1000);
-        }
-      }
-    } catch (dbErr) {
-      console.warn("DB 검색 에러:", dbErr);
+      aiData = JSON.parse(jsonMatch[1]);
+    } catch (parseErr: any) {
+      throw new Error(`AI 분석 결과 파싱 실패: ${parseErr.message}`);
     }
 
-    // 만약 DB 검색이 전혀 안 잡힌 경우의 안전장치 (가설 추락방지시설)
-    const validCode = matchedStandard?.code_number || "KCS 21 60 10";
-    const validTitle = matchedStandard?.title || "추락재해방지시설공사";
-    const referenceDoc = standardExcerpt || "바닥 개구부에는 덮개를 견고히 고정하고 위험 표시 및 하중한계를 명시하여야 한다.";
+    const targetCode = (aiData.code || "").trim();
+    const targetName = (aiData.name || "").trim();
+    const clauseNo = (aiData.clause || "").trim();
+    const clauseTitle = (aiData.clause_title || "").trim();
+    const clauseRule = (aiData.clause_rule || "").trim();
 
     // =========================================================================
-    // 3단계: 제공된 '진짜 DB 원문'만을 기반으로 확인서 세부 항목 생성
+    // 2단계: Supabase 실제 시방서 원문 대조
     // =========================================================================
-    const reportPrompt = `당신은 대한민국 국토교통부 수석 감리기술인입니다.
-아래 제공된 [실제 국토교통부 시방서 원문]을 바탕으로 현장점검 확인서 항목을 작성하세요.
-절대로 원문에 없는 가짜 코드나 조항을 만들지 마십시오.
+    let originalExcerpt = "";
+    if (targetCode) {
+      try {
+        const cleanCode = targetCode.replace(/\s+/g, " ");
+        const { data: dbData } = await supabase
+          .from("construction_standards")
+          .select("title, content")
+          .ilike("code_number", `%${cleanCode}%`)
+          .limit(1);
 
-[지적 사항]: ${defectDetail}
-[적용 기준]: ${validCode}${validTitle}
-[시방서 실제 원문 발췌]:
-${referenceDoc}
-
-반드시 아래 JSON 형식으로만 작성하세요:
-\`\`\`json
-{
-  "clause": "3.X.X (X)항",
-  "clause_title": "해당 조항 소제목",
-  "clause_rule": "원문에서 발췌한 핵심 설치 규정 요건",
-  "risk_analysis": "구조적 및 안전 추락 위험성 분석",
-  "action_required": "1. 즉시 조치 내용\\n2. 규정에 따른 견고한 고정 및 표식 조치\\n3. 감리원 재점검 및 관리대장 기록"
-}
-\`\`\``;
-
-    const reportRes = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: reportPrompt }] }],
-        generationConfig: {
-          temperature: 0.1,
-          thinkingConfig: { thinkingBudget: 0 }
+        if (dbData && dbData.length > 0 && dbData[0].content) {
+          const fullContent = dbData[0].content;
+          const startPos = fullContent.search(/(1\.\s*일반사항|3\.\s*시공|2\.\s*재료)/i);
+          const cleanContent = startPos !== -1 ? fullContent.substring(startPos) : fullContent;
+          originalExcerpt = cleanContent.substring(0, 200).replace(/\r?\n+/g, " ").trim();
         }
-      })
-    });
-
-    const reportJson = await reportRes.json();
-    const reportRaw = reportJson.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const reportMatch = reportRaw.match(/```json\s*([\s\S]*?)\s*```/);
-    const parsedReport = reportMatch ? JSON.parse(reportMatch[1]) : {};
+      } catch (dbErr) {
+        console.warn("Supabase 원문 조회 스킵:", dbErr);
+      }
+    }
 
     // =========================================================================
-    // 4단계: KCSC 공식 직행 검색 링크 및 최종 확인서 마크다운 생성
+    // 3단계: KCSC 공식 검색 링크 및 확인서 마크다운 생성
     // =========================================================================
-    const encCode = encodeURIComponent(validCode);
+    const encCode = encodeURIComponent(targetCode);
     const kcscUrl = `https://www.kcsc.re.kr/standardCode/search?searchType=0&kcsc_cd=${encCode}`;
+    const standardLink = targetCode 
+      ? `• 🔍 **[KCSC 공식 기준검색: '${targetCode}' 바로가기 ↗](${kcscUrl})**`
+      : "";
 
-    const standardSection = `• 🔍 **[KCSC 공식 기준검색: '${validCode}' 바로가기 ↗](${kcscUrl})**<br/><br/>• **적용 기준**: ${validCode} ${validTitle}<br/>• **세부 조항**: **${parsedReport.clause || "관련 조항"} ${parsedReport.clause_title || ""}**<br/>• **규정 요건**: ${parsedReport.clause_rule || "안전시설 설치 요건 준수"}`;
+    let standardSection = standardLink 
+      ? `${standardLink}<br/><br/>• **적용 기준**: ${targetCode} ${targetName}<br/>• **세부 조항**: **${clauseNo} ${clauseTitle}**<br/>• **규정 요건**: ${clauseRule}`
+      : `• **적용 기준**: ${targetName || "국토교통부 표준시방서"}<br/>• **세부 조항**: **${clauseNo} ${clauseTitle}**<br/>• **규정 요건**: ${clauseRule}`;
 
-    const safeDefectDetail = sanitizeForTable(defectDetail);
+    if (originalExcerpt) {
+      standardSection += `<br/>• **DB 원문 발췌**: "... ${originalExcerpt} ..."`;
+    }
+
+    const safeDefectDetail = sanitizeForTable(aiData.defect_detail || "현장 결함 식별 완료");
     const safeStandard = sanitizeForTable(standardSection);
-    const safeRisk = sanitizeForTable(parsedReport.risk_analysis || "추락 및 안전사고 발생 위험");
-    const safeAction = sanitizeForTable(parsedReport.action_required || "1. 즉시 개구부 폐쇄 및 덮개 견고 설치\n2. 위험경고 표지 부착\n3. 감리원 검측 완료");
+    const safeRisk = sanitizeForTable(aiData.risk_analysis || "안전 및 품질 저하 위험 우려");
+    const safeAction = sanitizeForTable(aiData.action_required || "현장 시공사 즉시 시정 요망");
 
     const formattedReport = `## 📄 건설공사 현장점검 확인서
 
@@ -195,7 +178,7 @@ ${referenceDoc}
 | **시정 조치 지시사항** | ${safeAction} |`;
 
     return NextResponse.json({
-      defects: parsedVision.defects || [],
+      defects: aiData.defects || [],
       report: formattedReport
     });
 
