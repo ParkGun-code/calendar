@@ -27,7 +27,7 @@ export default function FieldInspectionCalendar() {
   const [activeTab, setActiveTab] = useState("ai_check");
   const [uploadingExcel, setUploadingExcel] = useState(false);
   const fileInputRef = useRef(null);
-  const calendarRef = useRef(null); // 💡 캘린더 월 이동 제어용 ref
+  const calendarRef = useRef(null);
 
   // 수정 모드 상태
   const [isEditing, setIsEditing] = useState(false);
@@ -82,7 +82,7 @@ export default function FieldInspectionCalendar() {
     return { total, teamCounts };
   }, [events]);
 
-  // 💡 엑셀 일괄 등록 (해당 월 기존 데이터 삭제 후 새 데이터 적재)
+  // 엑셀 일괄 등록 (해당 월 기존 데이터 삭제 후 새 데이터 적재)
   const handleExcelUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -97,7 +97,6 @@ export default function FieldInspectionCalendar() {
         return;
       }
 
-      // 1. 이번 엑셀에 포함된 'YYYY-MM' 목록 추출 (예: ['2026-10'])
       const targetYearMonths = Array.from(
         new Set(
           parsedSchedules
@@ -112,7 +111,6 @@ export default function FieldInspectionCalendar() {
       );
       if (!confirmOverwrite) return;
 
-      // 2. 해당 월(Month)의 기존 Supabase 데이터 삭제
       for (const ym of targetYearMonths) {
         const [year, month] = ym.split("-");
         const startDate = `${year}-${month}-01`;
@@ -125,11 +123,10 @@ export default function FieldInspectionCalendar() {
           .lte("start_date", endDate);
 
         if (deleteError) {
-          console.warn(`${ym} 기존 일정 삭제 경고 (컬럼명 재확인):`, deleteError);
+          console.warn(`${ym} 기존 일정 삭제 경고:`, deleteError);
         }
       }
 
-      // 3. 신규 일정 DB 등록 데이터 생성
       const rowsToInsert = parsedSchedules.map((s) => ({
         title: `[${s.group_name || "1조"}] ${s.project_name || "현장점검"}`,
         location: s.project_name,
@@ -149,10 +146,8 @@ export default function FieldInspectionCalendar() {
 
       alert(`[${monthNames}] 기존 일정을 정리하고, 총 ${rowsToInsert.length}건의 일정을 성공적으로 등록했습니다.`);
       
-      // 최신 데이터 갱신
       await fetchEvents();
 
-      // 4. 업로드된 첫 일정 날짜로 캘린더 화면 자동 이동 (2026년 10월 등)
       if (parsedSchedules[0]?.check_date && calendarRef.current) {
         const calendarApi = calendarRef.current.getApi();
         calendarApi.gotoDate(parsedSchedules[0].check_date);
@@ -189,7 +184,7 @@ export default function FieldInspectionCalendar() {
     setAiResult("");
   };
 
-  // 모바일/PC 사진 자동 압축 (최대 1280px)
+  // 사진 자동 압축 (최대 1280px)
   const handleImageChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -232,7 +227,7 @@ export default function FieldInspectionCalendar() {
     reader.readAsDataURL(file);
   };
 
-  // AI 분석 실행 (Gemini 3.6 Flash + KCSC 딥링크)
+  // AI 분석 실행
   const runAiAnalysis = async () => {
     if (!base64Data) {
       alert("분석할 현장 점검 사진을 먼저 등록해 주세요.");
@@ -318,7 +313,7 @@ export default function FieldInspectionCalendar() {
 
   return (
     <div className="space-y-4">
-      {/* 1. 상단 국토교통부 관제 헤더 & KPI 통계 배너 */}
+      {/* 1. 상단 관제 헤더 & 통계 배너 */}
       <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white rounded-2xl shadow-xl p-5 border border-slate-800">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -341,7 +336,6 @@ export default function FieldInspectionCalendar() {
             </div>
           </div>
 
-          {/* 엑셀 일괄 등록 트리거 */}
           <div className="flex items-center gap-2 self-start md:self-auto">
             <input
               type="file"
@@ -362,7 +356,6 @@ export default function FieldInspectionCalendar() {
           </div>
         </div>
 
-        {/* 조별 통계 칩 바 */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5 mt-4 pt-4 border-t border-slate-800/80 text-xs">
           <div className="bg-slate-800/50 rounded-xl p-2.5 border border-slate-700/50 flex flex-col">
             <span className="text-[11px] text-slate-400 font-medium">전체 점검계획</span>
@@ -384,7 +377,7 @@ export default function FieldInspectionCalendar() {
         </div>
       </div>
 
-      {/* 2. 캘린더 메인 컨테이너 */}
+      {/* 2. 캘린더 컨테이너 */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200/90 p-4 sm:p-6">
         <FullCalendar
           ref={calendarRef}
@@ -402,11 +395,11 @@ export default function FieldInspectionCalendar() {
         />
       </div>
 
-      {/* 3. 국토교통부 표준 [현장점검 & AI 정밀 대조] 듀얼패널 모달 */}
+      {/* 3. 점검 상세 및 AI 정밀 대조 모달 */}
       {selectedEvent && (
         <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[92vh] border border-slate-300 flex flex-col overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150">
-            {/* 상단 모달 헤더 */}
+            {/* 모달 헤더 */}
             <div className="px-5 py-3.5 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <span className="text-xs font-black bg-amber-400 text-slate-950 px-2.5 py-1 rounded-md shadow-sm">
@@ -462,9 +455,8 @@ export default function FieldInspectionCalendar() {
             {/* 메인 컨텐츠 바디 */}
             <div className="p-5 flex-1 overflow-y-auto bg-slate-50/50">
               {activeTab === "ai_check" ? (
-                /* AI 정밀 대조 듀얼 스플릿 뷰 */
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-                  {/* 좌측: 현장 사진 업로드 및 붉은색 결함 박스 뷰어 (5컬럼) */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+                  {/* 좌측: 현장 사진 업로드 및 뷰어 (5컬럼) */}
                   <div className="lg:col-span-5 flex flex-col space-y-3">
                     <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
                       <div className="flex items-center justify-between">
@@ -488,7 +480,7 @@ export default function FieldInspectionCalendar() {
                               alt="검측대상사진"
                               className="max-h-72 object-contain rounded-lg block shadow"
                             />
-                            {/* Gemini 정규화 좌표 오버레이 */}
+                            {/* ★ 바운딩 박스 라벨 오버레이 개선: 박스 상단 안쪽에 줄바꿈으로 깔끔하게 배치 */}
                             {detectedBoxes.map((defect, idx) => {
                               if (!defect.box_2d || defect.box_2d.length !== 4) return null;
                               const [ymin, xmin, ymax, xmax] = defect.box_2d;
@@ -504,7 +496,7 @@ export default function FieldInspectionCalendar() {
                                   className="absolute border-2 border-rose-500 bg-rose-500/20 pointer-events-none rounded shadow-sm animate-in fade-in duration-300"
                                 >
                                   {defect.label && (
-                                    <span className="absolute -top-6 left-0 bg-rose-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded shadow whitespace-nowrap flex items-center gap-1">
+                                    <span className="absolute top-1 left-1 bg-rose-600/90 text-white text-[10px] font-black px-1.5 py-0.5 rounded shadow whitespace-normal leading-tight max-w-[92%]">
                                       ⚠️ {defect.label}
                                     </span>
                                   )}
@@ -547,7 +539,7 @@ export default function FieldInspectionCalendar() {
 
                   {/* 우측: 국토교통부 표준 시정확인서 렌더링 패널 (7컬럼) */}
                   <div className="lg:col-span-7">
-                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 sm:p-5 min-h-[360px] flex flex-col">
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 sm:p-5 flex flex-col">
                       <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
                         <div className="flex items-center gap-2">
                           <span className="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
@@ -562,20 +554,23 @@ export default function FieldInspectionCalendar() {
                         )}
                       </div>
 
+                      {/* ★ 확인서 자체 스크롤 컨테이너 적용 (max-h-[62vh] overflow-y-auto pr-2) */}
                       {aiResult ? (
-                        <div
-                          className="text-xs text-slate-800 leading-relaxed space-y-3 flex-1 
-                            [&>h2]:text-sm [&>h2]:font-black [&>h2]:text-slate-900 [&>h2]:border-b-2 [&>h2]:border-slate-800 [&>h2]:pb-1.5 [&>h2]:mb-3
-                            [&>table]:w-full [&>table]:border-collapse [&>table]:rounded-lg [&>table]:overflow-hidden [&>table]:border [&>table]:border-slate-200 [&>table]:my-2 [&>table]:shadow-xs
-                            [&_th]:bg-slate-100/90 [&_th]:text-slate-700 [&_th]:font-bold [&_th]:p-2.5 [&_th]:border [&_th]:border-slate-200 [&_th]:text-center [&_th]:w-1/4
-                            [&_td]:p-3 [&_td]:border [&_td]:border-slate-200 [&_td]:align-top [&_td]:bg-white
-                            [&>blockquote]:border-l-4 [&>blockquote]:border-blue-600 [&>blockquote]:pl-3 [&>blockquote]:bg-blue-50/50 [&>blockquote]:py-2 [&>blockquote]:rounded-r-md [&>blockquote]:text-slate-700
-                            [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>strong]:text-slate-900
-                            [&_a]:inline-flex [&_a]:items-center [&_a]:gap-1 [&_a]:text-blue-700 [&_a]:bg-blue-50 [&_a]:border [&_a]:border-blue-200 [&_a]:px-2 [&_a]:py-0.5 [&_a]:rounded-md [&_a]:font-bold [&_a]:no-underline hover:[&_a]:bg-blue-100 hover:[&_a]:text-blue-900 transition"
-                          dangerouslySetInnerHTML={{ __html: marked.parse(aiResult) }}
-                        />
+                        <div className="max-h-[62vh] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-300">
+                          <div
+                            className="text-xs text-slate-800 leading-relaxed space-y-3
+                              [&>h2]:text-sm [&>h2]:font-black [&>h2]:text-slate-900 [&>h2]:border-b-2 [&>h2]:border-slate-800 [&>h2]:pb-1.5 [&>h2]:mb-3
+                              [&>table]:w-full [&>table]:border-collapse [&>table]:rounded-lg [&>table]:overflow-hidden [&>table]:border [&>table]:border-slate-200 [&>table]:my-2 [&>table]:shadow-xs
+                              [&_th]:bg-slate-100/90 [&_th]:text-slate-700 [&_th]:font-bold [&_th]:p-2.5 [&_th]:border [&_th]:border-slate-200 [&_th]:text-center [&_th]:w-1/4
+                              [&_td]:p-3 [&_td]:border [&_td]:border-slate-200 [&_td]:align-top [&_td]:bg-white
+                              [&>blockquote]:border-l-4 [&>blockquote]:border-blue-600 [&>blockquote]:pl-3 [&>blockquote]:bg-blue-50/50 [&>blockquote]:py-2 [&>blockquote]:rounded-r-md [&>blockquote]:text-slate-700
+                              [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>strong]:text-slate-900
+                              [&_a]:inline-flex [&_a]:items-center [&_a]:gap-1 [&_a]:text-blue-700 [&_a]:bg-blue-50 [&_a]:border [&_a]:border-blue-200 [&_a]:px-2 [&_a]:py-0.5 [&_a]:rounded-md [&_a]:font-bold [&_a]:no-underline hover:[&_a]:bg-blue-100 hover:[&_a]:text-blue-900 transition"
+                            dangerouslySetInnerHTML={{ __html: marked.parse(aiResult) }}
+                          />
+                        </div>
                       ) : (
-                        <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-slate-400 space-y-2 border-2 border-dashed border-slate-100 rounded-xl">
+                        <div className="h-64 flex flex-col items-center justify-center text-center p-8 text-slate-400 space-y-2 border-2 border-dashed border-slate-100 rounded-xl">
                           <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center text-xl text-slate-400 mb-1">
                             📄
                           </div>
