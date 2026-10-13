@@ -24,18 +24,22 @@ function sanitizeForTable(text: string): string {
 }
 
 /**
- * 다중 API 키 자동 전환(Fallback) 헬퍼 함수
- * 429(할당량 초과) 또는 503 발생 시 다음 키로 자동 재시도
+ * 구글 실제 에러를 투명하게 반환하는 호출 함수
  */
-async function callGeminiWithFailover(payload: any) {
+async function callGeminiWithFailover(payload: any, stepName: string) {
   if (API_KEYS.length === 0) {
-    throw new Error("GEMINI_API_KEY 환경변수가 설정되지 않았습니다.");
+    throw new Error("서버에 등록된 GEMINI_API_KEY가 없습니다. Vercel 환경 변수를 확인하세요.");
   }
 
-  let lastError: any = null;
+  let lastDetail = "";
 
   for (let i = 0; i < API_KEYS.length; i++) {
     const currentKey = API_KEYS[i];
+    // 키 앞뒤 4자리만 노출하여 어떤 키인지 식별 가능하도록 로깅
+    const maskedKey = currentKey.length > 8 
+      ? `${currentKey.substring(0, 4)}...${currentKey.substring(currentKey.length - 4)}` 
+      : "키길이부족";
+
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${currentKey}`;
 
     try {
@@ -49,22 +53,28 @@ async function callGeminiWithFailover(payload: any) {
         return await res.json();
       }
 
-      // 429(호출 한도) 또는 503인 경우 다음 키로 시도
+      // 구글 서버가 응답한 실제 원문 에러 텍스트 읽기
+      const errBody = await res.text();
+      lastDetail = `[${stepName}][키 ${i + 1} (${maskedKey})] HTTP ${res.status}:${errBody}`;
+      console.error(lastDetail);
+
+      // 진짜 429(할당량 초과) 또는 503일 때만 다음 키로 시도
       if (res.status === 429 || res.status === 503) {
-        console.warn(`[API 키 ${i + 1}/${API_KEYS.length} 한도 초과(429)] 다음 키로 자동 전환 시도 중...`);
-        lastError = new Error(`키 ${i + 1} 한도 초과(429)`);
         continue;
       }
 
-      const errText = await res.text();
-      throw new Error(`API 오류 (${res.status}):${errText}`);
+      // 400(파라미터/이미지 오류), 403(키 무효/권한 없음), 404(모델명 불일치) 등은 즉시 원문 에러 출력
+      throw new Error(lastDetail);
     } catch (err: any) {
-      lastError = err;
-      console.warn(`[API 키 ${i + 1} 호출 실패]:`, err.message);
+      if (err.message && err.message.includes("HTTP")) {
+        throw err;
+      }
+      lastDetail = `[${stepName}][키 ${i + 1} (${maskedKey})] 통신 실패: ${err.message}`;
     }
   }
 
-  throw new Error(`등록된 모든 Gemini API 키(${API_KEYS.length}개)의 호출 한도가 초과되었습니다. 약 1분 후 다시 시도해 주세요.`);
+  // 모든 키 순회가 끝났을 때 구글의 실제 마지막 원문 에러를 띄움
+  throw new Error(lastDetail || "알 수 없는 API 호출 실패");
 }
 
 export async function POST(request: Request) {
@@ -141,12 +151,12 @@ export async function POST(request: Request) {
         temperature: 0.1,
         thinkingConfig: { thinkingBudget: 0 }
       }
-    });
+    }, "1단계 비전분석");
 
     const rawText1 = data1.candidates?.[0]?.content?.parts?.[0]?.text || "";
     const match1 = rawText1.match(/```json\s*([\s\S]*?)\s*```/);
     if (!match1 || !match1[1]) {
-      throw new Error("AI 분석 데이터 생성에 실패했습니다. 다시 시도해 주세요.");
+      throw new Error(`AI 분석 결과 파싱 실패 (응답 내용: ${rawText1.substring(0, 200)}...)`);
     }
 
     const parsed1 = JSON.parse(match1[1]);
@@ -210,7 +220,7 @@ ${standardExcerpt || "원문 대조 요망"}
         temperature: 0.1,
         thinkingConfig: { thinkingBudget: 0 }
       }
-    });
+    }, "2단계 조항대조");
 
     const rawText2 = data2.candidates?.[0]?.content?.parts?.[0]?.text || "";
     const match2 = rawText2.match(/```json\s*([\s\S]*?)\s*```/);
