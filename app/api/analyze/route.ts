@@ -4,7 +4,12 @@ import { createClient } from "@supabase/supabase-js";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY || "";
+// 환경 변수에서 쉼표(,)로 구분된 다중 API 키 파싱
+const RAW_KEYS = process.env.NEXT_PUBLIC_GEMINI_API_KEY || "";
+const API_KEYS = RAW_KEYS.split(",")
+  .map((k) => k.trim())
+  .filter((k) => k.length > 0);
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://hylizcltiyqtnclmwspo.supabase.co";
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_dD_I8Rbfc5qcOgbBRbL5qw_4yRK_EYs";
 
@@ -18,6 +23,50 @@ function sanitizeForTable(text: string): string {
     .trim();
 }
 
+/**
+ * 다중 API 키 자동 전환(Fallback) 헬퍼 함수
+ * 429(할당량 초과) 또는 503 발생 시 다음 키로 자동 재시도
+ */
+async function callGeminiWithFailover(payload: any) {
+  if (API_KEYS.length === 0) {
+    throw new Error("GEMINI_API_KEY 환경변수가 설정되지 않았습니다.");
+  }
+
+  let lastError: any = null;
+
+  for (let i = 0; i < API_KEYS.length; i++) {
+    const currentKey = API_KEYS[i];
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${currentKey}`;
+
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        return await res.json();
+      }
+
+      // 429(호출 한도) 또는 503인 경우 다음 키로 시도
+      if (res.status === 429 || res.status === 503) {
+        console.warn(`[API 키 ${i + 1}/${API_KEYS.length} 한도 초과(429)] 다음 키로 자동 전환 시도 중...`);
+        lastError = new Error(`키 ${i + 1} 한도 초과(429)`);
+        continue;
+      }
+
+      const errText = await res.text();
+      throw new Error(`API 오류 (${res.status}):${errText}`);
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`[API 키 ${i + 1} 호출 실패]:`, err.message);
+    }
+  }
+
+  throw new Error(`등록된 모든 Gemini API 키(${API_KEYS.length}개)의 호출 한도가 초과되었습니다. 약 1분 후 다시 시도해 주세요.`);
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -26,12 +75,6 @@ export async function POST(request: Request) {
     if (!base64Data) {
       return NextResponse.json({ error: "이미지 데이터가 전달되지 않았습니다." }, { status: 400 });
     }
-
-    if (!GEMINI_API_KEY) {
-      return NextResponse.json({ error: "GEMINI_API_KEY가 설정되지 않았습니다." }, { status: 500 });
-    }
-
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`;
 
     // =========================================================================
     // 1단계: 사진 분석 및 2,565건 현장점검 실무 적발 사례 패턴 1차 대조
@@ -84,35 +127,22 @@ export async function POST(request: Request) {
 }
 \`\`\``;
 
-    const res1 = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { text: step1Prompt },
-              { inlineData: { mimeType: mimeType || "image/jpeg", data: base64Data } }
-            ]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.1,
-          thinkingConfig: { thinkingBudget: 0 }
+    const data1 = await callGeminiWithFailover({
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: step1Prompt },
+            { inlineData: { mimeType: mimeType || "image/jpeg", data: base64Data } }
+          ]
         }
-      })
+      ],
+      generationConfig: {
+        temperature: 0.1,
+        thinkingConfig: { thinkingBudget: 0 }
+      }
     });
 
-    if (!res1.ok) {
-      const err1 = await res1.text();
-      if (res1.status === 429) {
-        throw new Error("AI 호출 한도(429)를 초과했습니다. 약 1분 후 다시 시도해 주세요.");
-      }
-      throw new Error(`[1단계 비전 분석 오류] ${res1.status}: ${err1}`);
-    }
-
-    const data1 = await res1.json();
     const rawText1 = data1.candidates?.[0]?.content?.parts?.[0]?.text || "";
     const match1 = rawText1.match(/```json\s*([\s\S]*?)\s*```/);
     if (!match1 || !match1[1]) {
@@ -150,9 +180,6 @@ export async function POST(request: Request) {
       console.warn("Supabase 원문 조회 경고:", dbErr);
     }
 
-    // Rate Limit(429) 방지를 위한 호출 간 딜레이
-    await new Promise((r) => setTimeout(r, 1200));
-
     // =========================================================================
     // 3단계: 조회된 실제 DB 원문만을 읽고 세부 조항 번호 및 실무 확인서 작성
     // =========================================================================
@@ -177,27 +204,14 @@ ${standardExcerpt || "원문 대조 요망"}
 }
 \`\`\``;
 
-    const res2 = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: step2Prompt }] }],
-        generationConfig: {
-          temperature: 0.1,
-          thinkingConfig: { thinkingBudget: 0 }
-        }
-      })
+    const data2 = await callGeminiWithFailover({
+      contents: [{ role: "user", parts: [{ text: step2Prompt }] }],
+      generationConfig: {
+        temperature: 0.1,
+        thinkingConfig: { thinkingBudget: 0 }
+      }
     });
 
-    if (!res2.ok) {
-      const err2 = await res2.text();
-      if (res2.status === 429) {
-        throw new Error("AI 호출 한도(429)에 도달했습니다. 잠시 후 다시 시도해 주세요.");
-      }
-      throw new Error(`[2단계 조항 대조 오류] ${res2.status}: ${err2}`);
-    }
-
-    const data2 = await res2.json();
     const rawText2 = data2.candidates?.[0]?.content?.parts?.[0]?.text || "";
     const match2 = rawText2.match(/```json\s*([\s\S]*?)\s*```/);
     const parsed2 = match2 ? JSON.parse(match2[1]) : {};
