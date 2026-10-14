@@ -22,28 +22,37 @@ function sanitizeForTable(text: string): string {
     .trim();
 }
 
+/**
+ * 텍스트에서 JSON 객체를 안전하게 복원 추출하는 함수
+ */
 function extractJsonRobustly(text: string): any {
   if (!text) return null;
+  let cleaned = text.trim();
 
-  const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  if (codeBlockMatch && codeBlockMatch[1]) {
-    try {
-      return JSON.parse(codeBlockMatch[1].trim());
-    } catch (e) {}
-  }
+  // 마크다운 백틱 제거
+  cleaned = cleaned.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
 
-  const firstBrace = text.indexOf("{");
-  const lastBrace = text.lastIndexOf("}");
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {}
+
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
   if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    const candidate = text.substring(firstBrace, lastBrace + 1).trim();
     try {
-      return JSON.parse(candidate);
+      return JSON.parse(cleaned.substring(firstBrace, lastBrace + 1));
     } catch (e) {}
   }
 
+  // 끝부분이 잘렸을 때 따옴표 및 괄호 자동 보정 복구
   if (firstBrace !== -1) {
-    let candidate = text.substring(firstBrace).trim();
-    if (!candidate.endsWith("}")) candidate += "\n}";
+    let candidate = cleaned.substring(firstBrace);
+    if (!candidate.endsWith("}")) {
+      if ((candidate.match(/"/g) || []).length % 2 !== 0) {
+        candidate += '"';
+      }
+      candidate += "\n}";
+    }
     try {
       return JSON.parse(candidate);
     } catch (e) {}
@@ -53,7 +62,7 @@ function extractJsonRobustly(text: string): any {
 }
 
 /**
- * 다중 API 키 및 503 일시혼잡 자동 재시도 호출 함수
+ * 다중 API 키 Failover 및 503 자동 재시도 함수
  */
 async function callGeminiWithFailover(payload: any, stepName: string) {
   if (API_KEYS.length === 0) {
@@ -70,7 +79,6 @@ async function callGeminiWithFailover(payload: any, stepName: string) {
 
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${currentKey}`;
 
-    // 503 대비 최대 2회 시도
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         const res = await fetch(endpoint, {
@@ -84,16 +92,13 @@ async function callGeminiWithFailover(payload: any, stepName: string) {
         }
 
         const errBody = await res.text();
-        lastDetail = `[${stepName}][키 ${i + 1} (${maskedKey})] HTTP ${res.status}:${errBody}`;
+        lastDetail = `[${stepName}][키 ${i + 1} (${maskedKey})] HTTP ${res.status}: ${errBody}`;
 
-        // 503(서버 일시혼잡)인 경우 1.5초 대기 후 1회 즉시 재시도
         if (res.status === 503 && attempt === 1) {
-          console.warn(`[503 서버 혼잡 감지] 1.5초 후 자동 재시도 중...`);
           await new Promise((r) => setTimeout(r, 1500));
           continue;
         }
 
-        // 429(할당량 초과)인 경우 다음 키로 순회
         if (res.status === 429) {
           break;
         }
@@ -119,7 +124,7 @@ export async function POST(request: Request) {
     }
 
     // =========================================================================
-    // 1단계: 사진 분석 및 실무 적발 패턴 1차 대조
+    // 1단계: 사진 분석 및 실무 적발 패턴 1차 대조 (JSON 스키마 출력 강제)
     // =========================================================================
     const step1Prompt = `당신은 국토교통부 건설안전 최고 특급 감리기술인입니다.
 전달받은 현장 사진의 안전 위험 및 시공 결함을 정밀 분석하고, [2,565건 국토관리청 실무 점검 적발 데이터베이스]의 핵심 패턴과 대조하여 가장 부합하는 공인 기준 코드를 1개 판별하세요.
@@ -152,22 +157,16 @@ export async function POST(request: Request) {
   * 굴착기 후면 협착방지봉 미설치 -> KCS 21 20 10 (건설지원장비, 3.4 굴착기)
   * 임시침사지 토사 퇴적/준설 미흡 -> KCS 21 20 15 (환경관리시설, 3.3.1 침사지)
 
-★ 중요: "label"은 이미지 위에 표기되므로 15자 이내의 간결한 명칭으로만 작성하세요!
+★ "label"은 15자 이내 간결한 명칭으로 작성하세요.
+★ "defect_detail"은 50자 내외로 핵심만 명확히 기술하세요.
 
-반드시 아래 순수 JSON 형식으로만 응답하십시오:
-\`\`\`json
+응답 형식 (JSON):
 {
-  "defects": [
-    {
-      "box_2d": [ymin, xmin, ymax, xmax],
-      "label": "15자 이내 결함명칭"
-    }
-  ],
+  "defects": [{"box_2d": [ymin, xmin, ymax, xmax], "label": "결함명칭"}],
   "code": "KCS XX XX XX",
   "name": "표준시방서 정식 명칭",
-  "defect_detail": "현장 미흡 현상 상세 서술"
-}
-\`\`\``;
+  "defect_detail": "현장 결함 상세 설명"
+}`;
 
     const data1 = await callGeminiWithFailover({
       contents: [
@@ -181,7 +180,8 @@ export async function POST(request: Request) {
       ],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens: 2048,
+        responseMimeType: "application/json",
+        maxOutputTokens: 4096,
         thinkingConfig: { thinkingBudget: 0 }
       }
     }, "1단계 비전분석");
@@ -202,7 +202,7 @@ export async function POST(request: Request) {
     }
 
     // =========================================================================
-    // 2단계: Supabase DB 원문 본문 선조회 (RAG 정밀 검증)
+    // 2단계: Supabase DB 원문 본문 조회 (RAG)
     // =========================================================================
     let standardExcerpt = "";
     try {
@@ -223,38 +223,37 @@ export async function POST(request: Request) {
       console.warn("Supabase 원문 조회 경고:", dbErr);
     }
 
-    // ★ 503(High Demand) 및 과부하 방지를 위한 안전 2.5초 대기
+    // 503 방지 2.5초 대기
     await new Promise((resolve) => setTimeout(resolve, 2500));
 
     // =========================================================================
-    // 3단계: 조회된 실제 DB 원문으로 실무 확인서 작성
+    // 3단계: 확인서 작성 (JSON 스키마 출력 강제)
     // =========================================================================
     const step2Prompt = `당신은 국토교통부 수석 감리기술인입니다.
 아래 제공된 [국토교통부 표준시방서 실제 원문 본문]에서 해당 결함과 직접 일치하는 실제 세부 조항 번호(반드시 '3.X' 또는 '3.X.X' 형태), 조항명, 핵심 설치 수치 및 규정을 발췌하세요.
 절대로 원문 본문에 없는 가짜 조항 번호를 지어내지 마십시오.
 
 [현장 지적 사항]: ${defectDetail}
-[적용 기준]: ${targetCode}${targetName}
+[적용 기준]: ${targetCode} ${targetName}
 
 [국토교통부 표준시방서 실제 원문 본문]:
 ${standardExcerpt || "원문 대조 요망"}
 
-반드시 아래 순수 JSON 형식으로만 응답하십시오:
-\`\`\`json
+응답 형식 (JSON):
 {
   "clause": "원문에 적힌 정확한 조항 번호 (예: 3.2, 3.3 등)",
   "clause_title": "원문에 적힌 실제 조항 제목",
   "clause_rule": "원문에서 발췌한 핵심 설치 수치 및 법적 요건",
   "risk_analysis": "구조적 안전성 저하 및 안전사고 위험도 상세 분석",
   "action_required": "1. 즉시 안전 확보 및 작업 통제\\n2. 시방서 기준에 따른 보강 및 규격 자재 재시공\\n3. 현장 감리원 검측 완료 확인"
-}
-\`\`\``;
+}`;
 
     const data2 = await callGeminiWithFailover({
       contents: [{ role: "user", parts: [{ text: step2Prompt }] }],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens: 2048,
+        responseMimeType: "application/json",
+        maxOutputTokens: 4096,
         thinkingConfig: { thinkingBudget: 0 }
       }
     }, "2단계 조항대조");
@@ -263,7 +262,7 @@ ${standardExcerpt || "원문 대조 요망"}
     const parsed2 = extractJsonRobustly(rawText2) || {};
 
     // =========================================================================
-    // 4단계: KCSC 공식 검색 링크 및 확인서 마크다운 생성
+    // 4단계: 마크다운 리포트 생성
     // =========================================================================
     const encCode = encodeURIComponent(targetCode);
     const kcscUrl = `https://www.kcsc.re.kr/standardCode/search?searchType=0&kcsc_cd=${encCode}`;
