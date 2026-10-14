@@ -24,7 +24,45 @@ function sanitizeForTable(text: string): string {
 }
 
 /**
- * 구글 실제 에러를 투명하게 반환하는 호출 함수
+ * AI 응답 텍스트에서 JSON 객체를 안전하게 추출하는 헬퍼 함수
+ */
+function extractJsonRobustly(text: string): any {
+  if (!text) return null;
+
+  // 1. ```json ... ``` 마크다운 블록 추출 시도
+  const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (codeBlockMatch && codeBlockMatch[1]) {
+    try {
+      return JSON.parse(codeBlockMatch[1].trim());
+    } catch (e) {}
+  }
+
+  // 2. 마크다운 기호가 없거나 닫는 백틱이 잘린 경우: 가장 바깥쪽 { 와 } 찾기
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    const candidate = text.substring(firstBrace, lastBrace + 1).trim();
+    try {
+      return JSON.parse(candidate);
+    } catch (e) {}
+  }
+
+  // 3. 만약 끝 중괄호(})가 잘려나간 경우 강제로 닫아서 복구 시도
+  if (firstBrace !== -1) {
+    let candidate = text.substring(firstBrace).trim();
+    if (!candidate.endsWith("}")) {
+      candidate += "\n}";
+    }
+    try {
+      return JSON.parse(candidate);
+    } catch (e) {}
+  }
+
+  return null;
+}
+
+/**
+ * 다중 API 키 자동 전환(Failover) 호출 함수
  */
 async function callGeminiWithFailover(payload: any, stepName: string) {
   if (API_KEYS.length === 0) {
@@ -35,7 +73,6 @@ async function callGeminiWithFailover(payload: any, stepName: string) {
 
   for (let i = 0; i < API_KEYS.length; i++) {
     const currentKey = API_KEYS[i];
-    // 키 앞뒤 4자리만 노출하여 어떤 키인지 식별 가능하도록 로깅
     const maskedKey = currentKey.length > 8 
       ? `${currentKey.substring(0, 4)}...${currentKey.substring(currentKey.length - 4)}` 
       : "키길이부족";
@@ -53,17 +90,14 @@ async function callGeminiWithFailover(payload: any, stepName: string) {
         return await res.json();
       }
 
-      // 구글 서버가 응답한 실제 원문 에러 텍스트 읽기
       const errBody = await res.text();
       lastDetail = `[${stepName}][키 ${i + 1} (${maskedKey})] HTTP ${res.status}:${errBody}`;
       console.error(lastDetail);
 
-      // 진짜 429(할당량 초과) 또는 503일 때만 다음 키로 시도
       if (res.status === 429 || res.status === 503) {
         continue;
       }
 
-      // 400(파라미터/이미지 오류), 403(키 무효/권한 없음), 404(모델명 불일치) 등은 즉시 원문 에러 출력
       throw new Error(lastDetail);
     } catch (err: any) {
       if (err.message && err.message.includes("HTTP")) {
@@ -73,7 +107,6 @@ async function callGeminiWithFailover(payload: any, stepName: string) {
     }
   }
 
-  // 모든 키 순회가 끝났을 때 구글의 실제 마지막 원문 에러를 띄움
   throw new Error(lastDetail || "알 수 없는 API 호출 실패");
 }
 
@@ -120,20 +153,20 @@ export async function POST(request: Request) {
   * 굴착기 후면 협착방지봉 미설치 -> KCS 21 20 10 (건설지원장비, 3.4 굴착기)
   * 임시침사지 토사 퇴적/준설 미흡 -> KCS 21 20 15 (환경관리시설, 3.3.1 침사지)
 
-★ 중요: "label"은 이미지 위에 표기되므로 절대 문장으로 길게 쓰지 마시고 15자 이내의 간결한 명칭으로만 작성하세요! (예: "안전난간 미설치 (추락 위험)", "개구부 덮개 미설치")
+★ 중요: "label"은 이미지 위에 표기되므로 15자 이내의 간결한 명칭으로만 작성하세요!
 
-반드시 아래 JSON 형식으로만 응답하십시오:
+반드시 아래 순수 JSON 형식으로만 응답하십시오:
 \`\`\`json
 {
   "defects": [
     {
       "box_2d": [ymin, xmin, ymax, xmax],
-      "label": "15자 이내 간결한 결함명칭"
+      "label": "15자 이내 결함명칭"
     }
   ],
   "code": "KCS XX XX XX",
   "name": "표준시방서 정식 명칭",
-  "defect_detail": "사진에서 육안 확인된 미흡 현상 상세 서술"
+  "defect_detail": "현장 미흡 현상 상세 서술"
 }
 \`\`\``;
 
@@ -149,17 +182,18 @@ export async function POST(request: Request) {
       ],
       generationConfig: {
         temperature: 0.1,
+        maxOutputTokens: 2048,
         thinkingConfig: { thinkingBudget: 0 }
       }
     }, "1단계 비전분석");
 
     const rawText1 = data1.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const match1 = rawText1.match(/```json\s*([\s\S]*?)\s*```/);
-    if (!match1 || !match1[1]) {
+    const parsed1 = extractJsonRobustly(rawText1);
+
+    if (!parsed1) {
       throw new Error(`AI 분석 결과 파싱 실패 (응답 내용: ${rawText1.substring(0, 200)}...)`);
     }
 
-    const parsed1 = JSON.parse(match1[1]);
     const targetCode = (parsed1.code || "").trim();
     const targetName = (parsed1.name || "").trim();
     const defectDetail = parsed1.defect_detail || "현장 결함 식별 완료";
@@ -195,7 +229,7 @@ export async function POST(request: Request) {
     // =========================================================================
     const step2Prompt = `당신은 국토교통부 수석 감리기술인입니다.
 아래 제공된 [국토교통부 표준시방서 실제 원문 본문]에서 해당 결함과 직접 일치하는 실제 세부 조항 번호(반드시 '3.X' 또는 '3.X.X' 형태), 조항명, 핵심 설치 수치 및 규정을 발췌하세요.
-절대로 원문 본문에 없는 가짜 조항 번호를 지어내지 마십시오(환각 절대 금지).
+절대로 원문 본문에 없는 가짜 조항 번호를 지어내지 마십시오.
 
 [현장 지적 사항]: ${defectDetail}
 [적용 기준]: ${targetCode}${targetName}
@@ -203,7 +237,7 @@ export async function POST(request: Request) {
 [국토교통부 표준시방서 실제 원문 본문]:
 ${standardExcerpt || "원문 대조 요망"}
 
-반드시 아래 JSON 형식으로만 응답하십시오:
+반드시 아래 순수 JSON 형식으로만 응답하십시오:
 \`\`\`json
 {
   "clause": "원문에 적힌 정확한 조항 번호 (예: 3.2, 3.3 등)",
@@ -218,13 +252,13 @@ ${standardExcerpt || "원문 대조 요망"}
       contents: [{ role: "user", parts: [{ text: step2Prompt }] }],
       generationConfig: {
         temperature: 0.1,
+        maxOutputTokens: 2048,
         thinkingConfig: { thinkingBudget: 0 }
       }
     }, "2단계 조항대조");
 
     const rawText2 = data2.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const match2 = rawText2.match(/```json\s*([\s\S]*?)\s*```/);
-    const parsed2 = match2 ? JSON.parse(match2[1]) : {};
+    const parsed2 = extractJsonRobustly(rawText2) || {};
 
     // =========================================================================
     // 4단계: KCSC 공식 검색 링크 및 현장점검 확인서 마크다운 생성
