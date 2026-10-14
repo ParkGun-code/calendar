@@ -4,7 +4,6 @@ import { createClient } from "@supabase/supabase-js";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-// 환경 변수에서 쉼표(,)로 구분된 다중 API 키 파싱
 const RAW_KEYS = process.env.NEXT_PUBLIC_GEMINI_API_KEY || "";
 const API_KEYS = RAW_KEYS.split(",")
   .map((k) => k.trim())
@@ -23,13 +22,9 @@ function sanitizeForTable(text: string): string {
     .trim();
 }
 
-/**
- * AI 응답 텍스트에서 JSON 객체를 안전하게 추출하는 헬퍼 함수
- */
 function extractJsonRobustly(text: string): any {
   if (!text) return null;
 
-  // 1. ```json ... ``` 마크다운 블록 추출 시도
   const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
   if (codeBlockMatch && codeBlockMatch[1]) {
     try {
@@ -37,7 +32,6 @@ function extractJsonRobustly(text: string): any {
     } catch (e) {}
   }
 
-  // 2. 마크다운 기호가 없거나 닫는 백틱이 잘린 경우: 가장 바깥쪽 { 와 } 찾기
   const firstBrace = text.indexOf("{");
   const lastBrace = text.lastIndexOf("}");
   if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
@@ -47,12 +41,9 @@ function extractJsonRobustly(text: string): any {
     } catch (e) {}
   }
 
-  // 3. 만약 끝 중괄호(})가 잘려나간 경우 강제로 닫아서 복구 시도
   if (firstBrace !== -1) {
     let candidate = text.substring(firstBrace).trim();
-    if (!candidate.endsWith("}")) {
-      candidate += "\n}";
-    }
+    if (!candidate.endsWith("}")) candidate += "\n}";
     try {
       return JSON.parse(candidate);
     } catch (e) {}
@@ -62,11 +53,11 @@ function extractJsonRobustly(text: string): any {
 }
 
 /**
- * 다중 API 키 자동 전환(Failover) 호출 함수
+ * 다중 API 키 및 503 일시혼잡 자동 재시도 호출 함수
  */
 async function callGeminiWithFailover(payload: any, stepName: string) {
   if (API_KEYS.length === 0) {
-    throw new Error("서버에 등록된 GEMINI_API_KEY가 없습니다. Vercel 환경 변수를 확인하세요.");
+    throw new Error("서버에 등록된 GEMINI_API_KEY가 없습니다.");
   }
 
   let lastDetail = "";
@@ -75,35 +66,43 @@ async function callGeminiWithFailover(payload: any, stepName: string) {
     const currentKey = API_KEYS[i];
     const maskedKey = currentKey.length > 8 
       ? `${currentKey.substring(0, 4)}...${currentKey.substring(currentKey.length - 4)}` 
-      : "키길이부족";
+      : "키식별";
 
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${currentKey}`;
 
-    try {
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
+    // 503 대비 최대 2회 시도
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
 
-      if (res.ok) {
-        return await res.json();
+        if (res.ok) {
+          return await res.json();
+        }
+
+        const errBody = await res.text();
+        lastDetail = `[${stepName}][키 ${i + 1} (${maskedKey})] HTTP ${res.status}:${errBody}`;
+
+        // 503(서버 일시혼잡)인 경우 1.5초 대기 후 1회 즉시 재시도
+        if (res.status === 503 && attempt === 1) {
+          console.warn(`[503 서버 혼잡 감지] 1.5초 후 자동 재시도 중...`);
+          await new Promise((r) => setTimeout(r, 1500));
+          continue;
+        }
+
+        // 429(할당량 초과)인 경우 다음 키로 순회
+        if (res.status === 429) {
+          break;
+        }
+
+        throw new Error(lastDetail);
+      } catch (err: any) {
+        if (err.message && err.message.includes("HTTP")) throw err;
+        lastDetail = `[${stepName}][키 ${i + 1} (${maskedKey})] 통신 실패: ${err.message}`;
       }
-
-      const errBody = await res.text();
-      lastDetail = `[${stepName}][키 ${i + 1} (${maskedKey})] HTTP ${res.status}:${errBody}`;
-      console.error(lastDetail);
-
-      if (res.status === 429 || res.status === 503) {
-        continue;
-      }
-
-      throw new Error(lastDetail);
-    } catch (err: any) {
-      if (err.message && err.message.includes("HTTP")) {
-        throw err;
-      }
-      lastDetail = `[${stepName}][키 ${i + 1} (${maskedKey})] 통신 실패: ${err.message}`;
     }
   }
 
@@ -120,7 +119,7 @@ export async function POST(request: Request) {
     }
 
     // =========================================================================
-    // 1단계: 사진 분석 및 2,565건 현장점검 실무 적발 사례 패턴 1차 대조
+    // 1단계: 사진 분석 및 실무 적발 패턴 1차 대조
     // =========================================================================
     const step1Prompt = `당신은 국토교통부 건설안전 최고 특급 감리기술인입니다.
 전달받은 현장 사진의 안전 위험 및 시공 결함을 정밀 분석하고, [2,565건 국토관리청 실무 점검 적발 데이터베이스]의 핵심 패턴과 대조하여 가장 부합하는 공인 기준 코드를 1개 판별하세요.
@@ -203,7 +202,7 @@ export async function POST(request: Request) {
     }
 
     // =========================================================================
-    // 2단계: 1차 선정된 기준 코드로 Supabase DB 원문 본문 선조회 (RAG 정밀 검증)
+    // 2단계: Supabase DB 원문 본문 선조회 (RAG 정밀 검증)
     // =========================================================================
     let standardExcerpt = "";
     try {
@@ -224,8 +223,11 @@ export async function POST(request: Request) {
       console.warn("Supabase 원문 조회 경고:", dbErr);
     }
 
+    // ★ 503(High Demand) 및 과부하 방지를 위한 안전 2.5초 대기
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+
     // =========================================================================
-    // 3단계: 조회된 실제 DB 원문만을 읽고 세부 조항 번호 및 실무 확인서 작성
+    // 3단계: 조회된 실제 DB 원문으로 실무 확인서 작성
     // =========================================================================
     const step2Prompt = `당신은 국토교통부 수석 감리기술인입니다.
 아래 제공된 [국토교통부 표준시방서 실제 원문 본문]에서 해당 결함과 직접 일치하는 실제 세부 조항 번호(반드시 '3.X' 또는 '3.X.X' 형태), 조항명, 핵심 설치 수치 및 규정을 발췌하세요.
@@ -261,7 +263,7 @@ ${standardExcerpt || "원문 대조 요망"}
     const parsed2 = extractJsonRobustly(rawText2) || {};
 
     // =========================================================================
-    // 4단계: KCSC 공식 검색 링크 및 현장점검 확인서 마크다운 생성
+    // 4단계: KCSC 공식 검색 링크 및 확인서 마크다운 생성
     // =========================================================================
     const encCode = encodeURIComponent(targetCode);
     const kcscUrl = `https://www.kcsc.re.kr/standardCode/search?searchType=0&kcsc_cd=${encCode}`;
